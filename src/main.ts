@@ -1,0 +1,937 @@
+import { DiagramStore } from './store/DiagramStore.ts'
+import { loadSavedTheme } from './themes/catppuccin.ts'
+import { loadDiagram, saveDiagram, saveDiagramToFile, loadDiagramFromFile } from './serialization/mermaid.ts'
+import { ClassRenderer } from './renderers/ClassRenderer.ts'
+import { PackageRenderer } from './renderers/PackageRenderer.ts'
+import { StorageRenderer } from './renderers/StorageRenderer.ts'
+import { ActorRenderer } from './renderers/ActorRenderer.ts'
+import { QueueRenderer } from './renderers/QueueRenderer.ts'
+import { ConnectionRenderer, injectMarkerDefs } from './renderers/ConnectionRenderer.ts'
+import { DragController } from './interaction/DragController.ts'
+import { ResizeController } from './interaction/ResizeController.ts'
+import { ConnectionController } from './interaction/ConnectionController.ts'
+import { SelectionManager } from './interaction/SelectionManager.ts'
+import { InlineEditor } from './interaction/InlineEditor.ts'
+import { Toolbar } from './ui/Toolbar.ts'
+import { showConnectionPopover } from './ui/ConnectionPopover.ts'
+import { showElementPropertiesPanel, hideElementPropertiesPanel } from './ui/ElementPropertiesPanel.ts'
+import { createUmlClass } from './entities/UmlClass.ts'
+import { createUmlPackage } from './entities/Package.ts'
+import { createStorage } from './entities/Storage.ts'
+import { createActor } from './entities/Actor.ts'
+import { createQueue } from './entities/Queue.ts'
+import type { UmlClass } from './entities/UmlClass.ts'
+import type { UmlPackage } from './entities/Package.ts'
+import type { Storage } from './entities/Storage.ts'
+import type { Actor } from './entities/Actor.ts'
+import type { Queue } from './entities/Queue.ts'
+import type { Connection } from './entities/Connection.ts'
+import { absolutePortPosition } from './renderers/ports.ts'
+import { getElementConfig } from './config/registry.ts'
+import type { ElementKind } from './types.ts'
+import { bestPortPair, pathMidpoint } from './renderers/routing.ts'
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+
+loadSavedTheme()
+
+const svg = document.getElementById('canvas') as unknown as SVGSVGElement
+injectMarkerDefs(svg)
+
+const diagram = loadDiagram()
+const store = new DiagramStore(diagram ?? undefined)
+const selection = new SelectionManager()
+const toolbar = new Toolbar(document.getElementById('toolbar')!)
+const inlineEditor = new InlineEditor()
+
+// ─── SVG viewport transform group ─────────────────────────────────────────────
+
+const viewGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+viewGroup.id = 'view-group'
+svg.appendChild(viewGroup)
+
+const pkgLayer     = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+const storageLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+const actorLayer   = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+const queueLayer   = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+const connLayer    = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+const clsLayer     = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+viewGroup.append(pkgLayer, storageLayer, actorLayer, queueLayer, connLayer, clsLayer)
+
+// Rubber-band selection rect — lives inside viewGroup so coords are in diagram space
+const rubberBandRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+rubberBandRect.classList.add('rubber-band')
+rubberBandRect.style.display = 'none'
+viewGroup.appendChild(rubberBandRect)
+
+// ─── Renderer maps ────────────────────────────────────────────────────────────
+
+const classRenderers   = new Map<string, ClassRenderer>()
+const pkgRenderers     = new Map<string, PackageRenderer>()
+const storageRenderers = new Map<string, StorageRenderer>()
+const actorRenderers   = new Map<string, ActorRenderer>()
+const queueRenderers   = new Map<string, QueueRenderer>()
+const connRenderers    = new Map<string, ConnectionRenderer>()
+
+// ─── SVG helper ───────────────────────────────────────────────────────────────
+
+function getSvgPoint(e: MouseEvent): DOMPoint {
+  const pt = svg.createSVGPoint()
+  pt.x = e.clientX; pt.y = e.clientY
+  return pt.matrixTransform(viewGroup.getScreenCTM()!.inverse())
+}
+
+// ─── Controllers ──────────────────────────────────────────────────────────────
+
+const drag    = new DragController(store, getSvgPoint)
+const resize  = new ResizeController(store, getSvgPoint, getMinSize, () => store.state.viewport.zoom)
+const connect = new ConnectionController(store, svg, getSvgPoint, showConnectionPopover)
+
+// ─── Add renderers ────────────────────────────────────────────────────────────
+
+function addClassRenderer(cls: UmlClass) {
+  const r = new ClassRenderer(
+    cls,
+    store,
+    (el, port, e) => { connect.startConnection({ ...el, elementType: 'uml-class' }, port, e); e.preventDefault() },
+    (el) => {
+      const current = store.state.classes.find(c => c.id === el.id)!
+      const newAttr = { id: crypto.randomUUID(), visibility: '+' as const, name: 'attribute', type: 'String' }
+      store.updateClass(el.id, { attributes: [...current.attributes, newAttr] })
+    },
+    (el) => {
+      const current = store.state.classes.find(c => c.id === el.id)!
+      const newMethod = { id: crypto.randomUUID(), visibility: '+' as const, name: 'method', params: [], returnType: 'void' }
+      store.updateClass(el.id, { methods: [...current.methods, newMethod] })
+    },
+  )
+  clsLayer.appendChild(r.el)
+  classRenderers.set(cls.id, r)
+  wireClassInteraction(r, cls)
+}
+
+function addPackageRenderer(pkg: UmlPackage) {
+  const r = new PackageRenderer(pkg, store, (el, port, e) => {
+    connect.startConnection({ ...el, elementType: 'uml-package' }, port, e)
+    e.preventDefault()
+  })
+  pkgLayer.appendChild(r.el)
+  pkgRenderers.set(pkg.id, r)
+  wirePackageInteraction(r, pkg)
+}
+
+function addStorageRenderer(storage: Storage) {
+  const r = new StorageRenderer(storage, store, (el, port, e) => {
+    connect.startConnection({ ...el, elementType: 'storage' }, port, e)
+    e.preventDefault()
+  })
+  storageLayer.appendChild(r.el)
+  storageRenderers.set(storage.id, r)
+  wireStorageInteraction(r, storage)
+}
+
+function addActorRenderer(actor: Actor) {
+  const r = new ActorRenderer(actor, store, (el, port, e) => {
+    connect.startConnection({ ...el, elementType: el.elementType }, port, e)
+    e.preventDefault()
+  })
+  actorLayer.appendChild(r.el)
+  actorRenderers.set(actor.id, r)
+  wireActorInteraction(r, actor)
+}
+
+function addQueueRenderer(queue: Queue) {
+  const r = new QueueRenderer(queue, store, (el, port, e) => {
+    connect.startConnection({ ...el, elementType: 'queue' }, port, e)
+    e.preventDefault()
+  })
+  queueLayer.appendChild(r.el)
+  queueRenderers.set(queue.id, r)
+  wireQueueInteraction(r, queue)
+}
+
+// Active connection popover dismiss — call to close any open connection popover
+let dismissConnPopover: (() => void) | null = null
+
+function addConnectionRenderer(conn: Connection) {
+  const r = new ConnectionRenderer(conn, store, (c, e) => {
+    e.stopPropagation()
+    selection.select({ kind: 'connection', id: c.id })
+
+    const d = store.state
+    const srcEl = findElement(d, c.source.elementId)
+    const tgtEl = findElement(d, c.target.elementId)
+    if (!srcEl || !tgtEl) return
+
+    const srcSize = getRenderedSizeFor(c.source.elementId, srcEl)
+    const tgtSize = getRenderedSizeFor(c.target.elementId, tgtEl)
+    const s = absolutePortPosition(srcEl.el.position.x, srcEl.el.position.y, srcSize.w, srcSize.h, c.source.port)
+    const t = absolutePortPosition(tgtEl.el.position.x, tgtEl.el.position.y, tgtSize.w, tgtSize.h, c.target.port)
+    const srcRect = { x: srcEl.el.position.x, y: srcEl.el.position.y, w: srcSize.w, h: srcSize.h }
+    const tgtRect = { x: tgtEl.el.position.x, y: tgtEl.el.position.y, w: tgtSize.w, h: tgtSize.h }
+    const mid = pathMidpoint(s.x, s.y, c.source.port, t.x, t.y, c.target.port, srcRect, tgtRect)
+
+    const svgRect = svg.getBoundingClientRect()
+    const vp = d.viewport
+    dismissConnPopover = showConnectionPopover(
+      svgRect.left + mid.x * vp.zoom + vp.x,
+      svgRect.top  + mid.y * vp.zoom + vp.y,
+      (type, srcMult, tgtMult) => {
+        store.updateConnection(c.id, {
+          type,
+          sourceMultiplicity: srcMult as Connection['sourceMultiplicity'],
+          targetMultiplicity: tgtMult as Connection['targetMultiplicity'],
+        })
+      },
+      () => { dismissConnPopover = null; selection.clear() },
+      getElementConfig(srcEl.type),
+      getElementConfig(tgtEl.type),
+      () => {
+        // Flip: swap source and target
+        store.updateConnection(c.id, { source: { ...c.target }, target: { ...c.source } })
+      },
+      { type: c.type, srcMult: c.sourceMultiplicity ?? '', tgtMult: c.targetMultiplicity ?? '' },
+    )
+  })
+  connLayer.appendChild(r.el)
+  connRenderers.set(conn.id, r)
+}
+
+// ─── Nearest port helper ──────────────────────────────────────────────────────
+
+function nearestPort(e: MouseEvent, hostEl: Element): string {
+  const rect = hostEl.getBoundingClientRect()
+  const cx = rect.left + rect.width  / 2
+  const cy = rect.top  + rect.height / 2
+  const dx = e.clientX - cx
+  const dy = e.clientY - cy
+  if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? 'e' : 'w'
+  return dy > 0 ? 's' : 'n'
+}
+
+// ─── Element lookup helper ────────────────────────────────────────────────────
+
+type AnyElement = { position: { x: number; y: number }; size: { w: number; h: number } }
+
+function findElement(
+  d: Readonly<ReturnType<typeof store.state.valueOf>>,
+  id: string,
+): { el: AnyElement; type: string } | undefined {
+  const cls = (d as typeof store.state).classes.find((c: { id: string }) => c.id === id)
+  if (cls) return { el: cls as AnyElement, type: 'uml-class' }
+  const pkg = (d as typeof store.state).packages.find((p: { id: string }) => p.id === id)
+  if (pkg) return { el: pkg as AnyElement, type: 'uml-package' }
+  const st = (d as typeof store.state).storages.find((s: { id: string }) => s.id === id)
+  if (st) return { el: st as AnyElement, type: 'storage' }
+  const ac = (d as typeof store.state).actors.find((a: { id: string }) => a.id === id)
+  if (ac) return { el: ac as AnyElement, type: (ac as Actor).elementType }
+  const q = (d as typeof store.state).queues.find((q: { id: string }) => q.id === id)
+  if (q) return { el: q as AnyElement, type: 'queue' }
+  return undefined
+}
+
+/** Get the rendered (possibly expanded) size for an element — for use in connection routing */
+function getRenderedSizeFor(id: string, found: { el: AnyElement; type: string }): { w: number; h: number } {
+  return classRenderers.get(id)?.getRenderedSize()
+    ?? pkgRenderers.get(id)?.getRenderedSize()
+    ?? storageRenderers.get(id)?.getRenderedSize()
+    ?? actorRenderers.get(id)?.getRenderedSize()
+    ?? queueRenderers.get(id)?.getRenderedSize()
+    ?? found.el.size
+}
+
+// ─── Properties panel helper ──────────────────────────────────────────────────
+
+function showPropertiesForSelection() {
+  const items = selection.items
+  if (items.length !== 1) { hideElementPropertiesPanel(); return }
+
+  const item = items[0]
+  const d = store.state
+
+  let el: AnyElement & { multiInstance?: boolean } | undefined
+  let updateFn: (patch: { multiInstance: boolean }) => void = () => {}
+
+  if (item.kind === 'class') {
+    const c = d.classes.find(c => c.id === item.id)
+    if (c) { el = c as AnyElement; updateFn = p => store.updateClass(item.id, p) }
+  } else if (item.kind === 'package') {
+    hideElementPropertiesPanel(); return
+  } else if (item.kind === 'storage') {
+    const s = d.storages.find(s => s.id === item.id)
+    if (s) { el = s; updateFn = p => store.updateStorage(item.id, p) }
+  } else if (item.kind === 'actor') {
+    const a = d.actors.find(a => a.id === item.id)
+    if (a) { el = a; updateFn = p => store.updateActor(item.id, p) }
+  } else if (item.kind === 'queue') {
+    const q = d.queues.find(q => q.id === item.id)
+    if (q) { el = q; updateFn = p => store.updateQueue(item.id, p) }
+  }
+
+  if (!el) { hideElementPropertiesPanel(); return }
+
+  const svgRect = svg.getBoundingClientRect()
+  const vp = d.viewport
+  const screenX = svgRect.left + (el.position.x + el.size.w) * vp.zoom + vp.x + 12
+  const screenY = svgRect.top  + el.position.y * vp.zoom + vp.y
+
+  showElementPropertiesPanel(
+    screenX,
+    screenY,
+    el.multiInstance ?? false,
+    (multiInstance) => updateFn({ multiInstance }),
+  )
+}
+
+// ─── Element interaction wiring ───────────────────────────────────────────────
+
+/**
+ * Returns the content-minimum size for any element kind, by querying its renderer.
+ * Used by ResizeController to clamp resize at content boundaries.
+ */
+function getMinSize(kind: ElementKind, id: string): { w: number; h: number } {
+  switch (kind) {
+    case 'class':   return classRenderers.get(id)?.getContentMinSize()   ?? { w: 180, h: 40 }
+    case 'package': return pkgRenderers.get(id)?.getContentMinSize()     ?? { w: 120, h: 60 }
+    case 'storage': return storageRenderers.get(id)?.getContentMinSize() ?? { w: 80,  h: 40 }
+    case 'actor':   return actorRenderers.get(id)?.getContentMinSize()   ?? { w: 80,  h: 40 }
+    case 'queue':   return queueRenderers.get(id)?.getContentMinSize()   ?? { w: 100, h: 48 }
+  }
+}
+
+/**
+ * Wire drag, resize, and name-edit interactions for any simple element type.
+ * "Simple" means: the element's rendered size equals its stored `size` field,
+ * and dblclick on a single text node renames the element.
+ *
+ * @param el            The root SVG element of the renderer
+ * @param kind          Element kind key used by selection/drag/resize
+ * @param id            Stable element id
+ * @param getElData     Returns current {x,y,w,h} for resize hit-testing
+ * @param nameSelector  CSS class of the text node that triggers rename on dblclick
+ * @param getName       Returns current name from store state
+ * @param updateName    Persists a new name to the store
+ * @param noVerticalResize  If true, n/s resize edges are suppressed (class behaviour)
+ */
+function wireElementInteraction(
+  el: SVGGElement,
+  kind: ElementKind,
+  id: string,
+  getElData: () => { x: number; y: number; w: number; h: number },
+  nameSelector: string,
+  getName: () => string,
+  updateName: (val: string) => void,
+  noVerticalResize = false,
+) {
+  el.addEventListener('mousedown', e => {
+    if (connect.isConnecting) return
+    if (toolbar.activeTool === 'pan') return
+    // Suppress resize when multiple elements are selected — only drag-move is allowed
+    const multiSelected = selection.items.length > 1 && selection.isSelected(id)
+    if (!multiSelected) {
+      const { x, y, w, h } = getElData()
+      const elData = { kind, id, x, y, w, h }
+      const resizeHit = resize.hitTest(e, [elData])
+      if (resizeHit) {
+        if (noVerticalResize && (resizeHit.edge === 'n' || resizeHit.edge === 's')) {
+          // Fall through to drag
+        } else {
+          e.stopPropagation()
+          resize.startResize(resizeHit, e)
+          return
+        }
+      }
+    }
+    e.stopPropagation()
+    selection.select({ kind, id }, e.shiftKey)
+    drag.startDrag({ kind, id }, e, selection.items)
+  })
+
+  el.addEventListener('dblclick', e => {
+    const target = e.target as SVGTextElement
+    if (!target.classList.contains(nameSelector)) return
+    e.stopPropagation()
+    inlineEditor.edit(target, getName(), updateName)
+  })
+}
+
+function wireClassInteraction(r: ClassRenderer, cls: UmlClass) {
+  wireElementInteraction(
+    r.el,
+    'class',
+    cls.id,
+    () => { const s = r.getRenderedSize(); const c = store.state.classes.find(c => c.id === cls.id) ?? cls; return { x: c.position.x, y: c.position.y, w: s.w, h: s.h } },
+    'class-title',
+    () => (store.state.classes.find(c => c.id === cls.id) ?? cls).name,
+    val => store.updateClass(cls.id, { name: val }),
+    /* noVerticalResize */ true,
+  )
+
+  // Additional dblclick handling for member editing (attributes/methods)
+  r.el.addEventListener('dblclick', e => {
+    const target = e.target as SVGTextElement
+    if (!target.classList.contains('member-text')) return
+    e.stopPropagation()
+    const currentCls = store.state.classes.find(c => c.id === cls.id)!
+    const idx  = parseInt(target.dataset.memberIdx  ?? '-1')
+    const memberKind = target.dataset.memberKind
+    if (idx < 0) return
+    if (memberKind === 'attribute') {
+      const attrs = [...currentCls.attributes]
+      inlineEditor.edit(target, target.textContent ?? '', val => {
+        attrs[idx] = { ...attrs[idx], raw: val }
+        store.updateClass(cls.id, { attributes: attrs })
+      })
+    } else {
+      const methods = [...currentCls.methods]
+      inlineEditor.edit(target, target.textContent ?? '', val => {
+        methods[idx] = { ...methods[idx], raw: val }
+        store.updateClass(cls.id, { methods })
+      })
+    }
+  })
+}
+
+function wirePackageInteraction(r: PackageRenderer, pkg: UmlPackage) {
+  wireElementInteraction(
+    r.el, 'package', pkg.id,
+    () => { const s = r.getRenderedSize(); const c = store.state.packages.find(p => p.id === pkg.id) ?? pkg; return { x: c.position.x, y: c.position.y, w: s.w, h: s.h } },
+    'pkg-name',
+    () => (store.state.packages.find(p => p.id === pkg.id) ?? pkg).name,
+    val => store.updatePackage(pkg.id, { name: val }),
+  )
+}
+
+function wireStorageInteraction(r: StorageRenderer, storage: Storage) {
+  wireElementInteraction(
+    r.el, 'storage', storage.id,
+    () => { const s = r.getRenderedSize(); const c = store.state.storages.find(st => st.id === storage.id) ?? storage; return { x: c.position.x, y: c.position.y, w: s.w, h: s.h } },
+    'storage-name',
+    () => (store.state.storages.find(s => s.id === storage.id) ?? storage).name,
+    val => store.updateStorage(storage.id, { name: val }),
+  )
+}
+
+function wireActorInteraction(r: ActorRenderer, actor: Actor) {
+  wireElementInteraction(
+    r.el, 'actor', actor.id,
+    () => { const s = r.getRenderedSize(); const c = store.state.actors.find(a => a.id === actor.id) ?? actor; return { x: c.position.x, y: c.position.y, w: s.w, h: s.h } },
+    'actor-name',
+    () => (store.state.actors.find(a => a.id === actor.id) ?? actor).name,
+    val => store.updateActor(actor.id, { name: val }),
+  )
+}
+
+function wireQueueInteraction(r: QueueRenderer, queue: Queue) {
+  wireElementInteraction(
+    r.el, 'queue', queue.id,
+    () => { const s = r.getRenderedSize(); const c = store.state.queues.find(q => q.id === queue.id) ?? queue; return { x: c.position.x, y: c.position.y, w: s.w, h: s.h } },
+    'queue-name',
+    () => (store.state.queues.find(q => q.id === queue.id) ?? queue).name,
+    val => store.updateQueue(queue.id, { name: val }),
+  )
+}
+
+// ─── Store → renderer sync ────────────────────────────────────────────────────
+
+store.on(ev => {
+  if (ev.type === 'class:add')        addClassRenderer(ev.payload as UmlClass)
+  if (ev.type === 'class:remove')     { classRenderers.get(ev.payload as string)?.el.remove(); classRenderers.delete(ev.payload as string) }
+  if (ev.type === 'package:add')      addPackageRenderer(ev.payload as UmlPackage)
+  if (ev.type === 'package:remove')   { pkgRenderers.get(ev.payload as string)?.el.remove(); pkgRenderers.delete(ev.payload as string) }
+  if (ev.type === 'storage:add')      addStorageRenderer(ev.payload as Storage)
+  if (ev.type === 'storage:remove')   { storageRenderers.get(ev.payload as string)?.el.remove(); storageRenderers.delete(ev.payload as string) }
+  if (ev.type === 'actor:add')        addActorRenderer(ev.payload as Actor)
+  if (ev.type === 'actor:remove')     { actorRenderers.get(ev.payload as string)?.el.remove(); actorRenderers.delete(ev.payload as string) }
+  if (ev.type === 'queue:add')        addQueueRenderer(ev.payload as Queue)
+  if (ev.type === 'queue:remove')     { queueRenderers.get(ev.payload as string)?.el.remove(); queueRenderers.delete(ev.payload as string) }
+  if (ev.type === 'connection:add')   { addConnectionRenderer(ev.payload as Connection); refreshConnections() }
+  if (ev.type === 'connection:remove') {
+    connRenderers.get(ev.payload as string)?.el.remove()
+    connRenderers.delete(ev.payload as string)
+    refreshConnections()
+  }
+  if (ev.type === 'diagram:load')     rebuildAll()
+
+  // Close any open popover and properties panel when anything is removed
+  const isRemove = ev.type.endsWith(':remove')
+  if (isRemove) {
+    dismissConnPopover?.()
+    dismissConnPopover = null
+    hideElementPropertiesPanel()
+    selection.clear()
+  }
+
+  if (['class:update', 'package:update', 'storage:update', 'actor:update', 'queue:update', 'connection:update'].includes(ev.type)) {
+    refreshConnections()
+    showPropertiesForSelection()
+  }
+
+  saveDiagram(store.state)
+})
+
+// ─── Connection line refresh ──────────────────────────────────────────────────
+
+function refreshConnections() {
+  const d = store.state
+
+  // ── Pass 1: determine best port pair for every connection ─────────────────
+  type RouteInfo = {
+    conn: Connection
+    s1Id: string; s1Type: string; s1Pos: { x: number; y: number }; s1Size: { w: number; h: number }
+    s2Id: string; s2Type: string; s2Pos: { x: number; y: number }; s2Size: { w: number; h: number }
+    srcPort: string; tgtPort: string
+  }
+  const routes: RouteInfo[] = []
+
+  for (const conn of d.connections) {
+    if (!connRenderers.get(conn.id)) continue
+    const srcEl = findElement(d, conn.source.elementId)
+    const tgtEl = findElement(d, conn.target.elementId)
+    if (!srcEl || !tgtEl) continue
+
+    const srcSize = getRenderedSizeFor(conn.source.elementId, srcEl)
+    const tgtSize = getRenderedSizeFor(conn.target.elementId, tgtEl)
+
+    // For storage connections, normalize so non-storage=s1, storage=s2
+    let s1Id = conn.source.elementId, s2Id = conn.target.elementId
+    let s1Pos = srcEl.el.position, s2Pos = tgtEl.el.position
+    let s1Size = srcSize, s2Size = tgtSize
+    let s1Type = srcEl.type, s2Type = tgtEl.type
+    if (srcEl.type === 'storage' && tgtEl.type !== 'storage') {
+      [s1Id, s2Id] = [s2Id, s1Id];
+      [s1Pos, s2Pos] = [s2Pos, s1Pos];
+      [s1Size, s2Size] = [s2Size, s1Size];
+      [s1Type, s2Type] = [s2Type, s1Type];
+    }
+
+    const best = bestPortPair(
+      { x: s1Pos.x, y: s1Pos.y, w: s1Size.w, h: s1Size.h },
+      { x: s2Pos.x, y: s2Pos.y, w: s2Size.w, h: s2Size.h },
+    )
+    conn.source.port = best.src
+    conn.target.port = best.tgt
+
+    routes.push({ conn, s1Id, s1Type, s1Pos, s1Size, s2Id, s2Type, s2Pos, s2Size, srcPort: best.src, tgtPort: best.tgt })
+  }
+
+  // ── Pass 2: count connections per element-side to distribute fracs ────────
+  // Key = elementId + '|' + side → array of route indices using that side on that element
+  const sideMap = new Map<string, number[]>()
+  for (let i = 0; i < routes.length; i++) {
+    const { s1Id, srcPort, s2Id, tgtPort } = routes[i]
+    const k1 = `${s1Id}|${srcPort}`
+    const k2 = `${s2Id}|${tgtPort}`
+    if (!sideMap.has(k1)) sideMap.set(k1, [])
+    if (!sideMap.has(k2)) sideMap.set(k2, [])
+    sideMap.get(k1)!.push(i)
+    sideMap.get(k2)!.push(i)
+  }
+
+  // Assign fractional positions per side: equal spacing — frac = (j+1)/(n+1)
+  // gives equal gaps: corner → conn1 = conn1 → conn2 = ... = connN → corner
+  const srcFracs = new Float32Array(routes.length).fill(0.5)
+  const tgtFracs = new Float32Array(routes.length).fill(0.5)
+  for (const [key, indices] of sideMap) {
+    const n = indices.length
+    if (n <= 1) continue  // single connection → stays at center
+    const [elId] = key.split('|')
+    for (let j = 0; j < n; j++) {
+      const frac = (j + 1) / (n + 1)
+      const routeIdx = indices[j]
+      if (routes[routeIdx].s1Id === elId) srcFracs[routeIdx] = frac
+      else tgtFracs[routeIdx] = frac
+    }
+  }
+
+  // ── Pass 3: render ────────────────────────────────────────────────────────
+  for (let i = 0; i < routes.length; i++) {
+    const { conn, s1Pos, s1Size, srcPort, s2Pos, s2Size, tgtPort } = routes[i]
+    const r = connRenderers.get(conn.id)!
+
+    const s = absolutePortPosition(s1Pos.x, s1Pos.y, s1Size.w, s1Size.h, srcPort, srcFracs[i])
+    const t = absolutePortPosition(s2Pos.x, s2Pos.y, s2Size.w, s2Size.h, tgtPort, tgtFracs[i])
+    const srcRect = { x: s1Pos.x, y: s1Pos.y, w: s1Size.w, h: s1Size.h }
+    const tgtRect = { x: s2Pos.x, y: s2Pos.y, w: s2Size.w, h: s2Size.h }
+    r.updatePoints(s.x, s.y, t.x, t.y, srcPort, tgtPort, conn, 0, srcRect, tgtRect)
+  }
+}
+
+// ─── Selection → renderer highlight ──────────────────────────────────────────
+
+selection.onChange(items => {
+  const ids = new Set(items.map(i => i.id))
+  classRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
+  pkgRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
+  storageRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
+  actorRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
+  queueRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
+  connRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
+
+  showPropertiesForSelection()
+})
+
+// ─── Canvas mouse events ──────────────────────────────────────────────────────
+
+svg.addEventListener('dblclick', e => {
+  if (e.button !== 0) return
+  const tool = toolbar.activeTool
+  const pt = getSvgPoint(e)
+  // Don't create if double-clicking on an existing element
+  const target = e.target as Element
+  if (target.closest('[data-id]')) return
+
+  if (tool === 'class') {
+    store.addClass(createUmlClass({ name: 'NewClass', position: { x: pt.x - 90, y: pt.y - 60 } }))
+    return
+  }
+  if (tool === 'package') {
+    store.addPackage(createUmlPackage({ name: 'com.example', position: { x: pt.x - 160, y: pt.y - 120 } }))
+    return
+  }
+  if (tool === 'storage') {
+    store.addStorage(createStorage({ name: 'DataStore', position: { x: pt.x - 80, y: pt.y - 30 } }))
+    return
+  }
+  if (tool === 'agent') {
+    store.addActor(createActor({ elementType: 'agent', name: 'Agent', position: { x: pt.x - 60, y: pt.y - 30 } }))
+    return
+  }
+  if (tool === 'human-agent') {
+    store.addActor(createActor({ elementType: 'human-agent', name: 'User', position: { x: pt.x - 40, y: pt.y - 50 } }))
+    return
+  }
+  if (tool === 'queue') {
+    store.addQueue(createQueue({ name: 'Queue', position: { x: pt.x - 80, y: pt.y - 30 } }))
+    return
+  }
+})
+
+// ─── Rubber-band selection ────────────────────────────────────────────────────
+
+let rubberBanding = false
+let rubberStart = { x: 0, y: 0 }
+
+svg.addEventListener('mousedown', e => {
+  if (connect.isConnecting) return
+  if (e.button !== 0) return
+  if (toolbar.activeTool === 'pan') return
+  // Only start rubber-band if clicking on empty canvas (not on an element)
+  const target = e.target as Element
+  if (target.closest('[data-id]')) {
+    // Clicking bare canvas without hitting an element — clear selection
+    if (toolbar.activeTool === 'select') selection.clear()
+    return
+  }
+  if (toolbar.activeTool === 'select') selection.clear()
+  const pt = getSvgPoint(e)
+  rubberBanding = true
+  rubberStart = { x: pt.x, y: pt.y }
+  rubberBandRect.setAttribute('x', String(pt.x))
+  rubberBandRect.setAttribute('y', String(pt.y))
+  rubberBandRect.setAttribute('width', '0')
+  rubberBandRect.setAttribute('height', '0')
+  rubberBandRect.style.display = ''
+  e.preventDefault()
+})
+
+window.addEventListener('mousemove', e => {
+  if (drag.isDragging)      drag.onMouseMove(e)
+  if (resize.isResizing)    resize.onMouseMove(e)
+  if (connect.isConnecting) connect.onMouseMove(e)
+  if (rubberBanding) {
+    const pt = getSvgPoint(e)
+    const rx = Math.min(pt.x, rubberStart.x)
+    const ry = Math.min(pt.y, rubberStart.y)
+    const rw = Math.abs(pt.x - rubberStart.x)
+    const rh = Math.abs(pt.y - rubberStart.y)
+    rubberBandRect.setAttribute('x', String(rx))
+    rubberBandRect.setAttribute('y', String(ry))
+    rubberBandRect.setAttribute('width', String(rw))
+    rubberBandRect.setAttribute('height', String(rh))
+  }
+})
+
+// Update resize cursor based on hover position
+svg.addEventListener('mousemove', e => {
+  if (drag.isDragging || resize.isResizing || connect.isConnecting || rubberBanding) return
+  // No resize cursor when multiple elements are selected
+  if (selection.items.length > 1) { svg.style.cursor = ''; return }
+  const d = store.state
+  const allElements = [
+    ...d.classes.map(c => { const s = classRenderers.get(c.id)?.getRenderedSize() ?? c.size; return { kind: 'class' as const, id: c.id, x: c.position.x, y: c.position.y, w: s.w, h: s.h } }),
+    ...d.packages.map(p => { const s = pkgRenderers.get(p.id)?.getRenderedSize() ?? p.size; return { kind: 'package' as const, id: p.id, x: p.position.x, y: p.position.y, w: s.w, h: s.h } }),
+    ...d.storages.map(s => { const rs = storageRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'storage' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
+    ...d.actors.map(a => { const s = actorRenderers.get(a.id)?.getRenderedSize() ?? a.size; return { kind: 'actor' as const, id: a.id, x: a.position.x, y: a.position.y, w: s.w, h: s.h } }),
+    ...d.queues.map(q => { const s = queueRenderers.get(q.id)?.getRenderedSize() ?? q.size; return { kind: 'queue' as const, id: q.id, x: q.position.x, y: q.position.y, w: s.w, h: s.h } }),
+  ]
+  let hit = resize.hitTest(e, allElements)
+  if (hit?.kind === 'class' && (hit.edge === 'n' || hit.edge === 's')) hit = null
+  svg.style.cursor = hit ? resize.edgeCursor(hit.edge) : ''
+})
+
+window.addEventListener('mouseup', e => {
+  if (drag.isDragging)   { drag.onMouseUp(); return }
+  if (resize.isResizing) { resize.onMouseUp(); return }
+  if (rubberBanding) {
+    rubberBanding = false
+    rubberBandRect.style.display = 'none'
+    const rx = parseFloat(rubberBandRect.getAttribute('x') ?? '0')
+    const ry = parseFloat(rubberBandRect.getAttribute('y') ?? '0')
+    const rw = parseFloat(rubberBandRect.getAttribute('width') ?? '0')
+    const rh = parseFloat(rubberBandRect.getAttribute('height') ?? '0')
+    // Only commit if the rect is large enough to be intentional (not a stray click)
+    if (rw > 4 || rh > 4) {
+      const d = store.state
+      const allEls = [
+        ...d.classes.map(c => { const s = classRenderers.get(c.id)?.getRenderedSize() ?? c.size; return { kind: 'class' as const, id: c.id, x: c.position.x, y: c.position.y, w: s.w, h: s.h } }),
+        ...d.packages.map(p => { const s = pkgRenderers.get(p.id)?.getRenderedSize() ?? p.size; return { kind: 'package' as const, id: p.id, x: p.position.x, y: p.position.y, w: s.w, h: s.h } }),
+        ...d.storages.map(s => { const rs = storageRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'storage' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
+        ...d.actors.map(a => { const s = actorRenderers.get(a.id)?.getRenderedSize() ?? a.size; return { kind: 'actor' as const, id: a.id, x: a.position.x, y: a.position.y, w: s.w, h: s.h } }),
+        ...d.queues.map(q => { const s = queueRenderers.get(q.id)?.getRenderedSize() ?? q.size; return { kind: 'queue' as const, id: q.id, x: q.position.x, y: q.position.y, w: s.w, h: s.h } }),
+      ]
+      for (const el of allEls) {
+        // Select elements whose bounds overlap the rubber-band rect
+        if (el.x + el.w > rx && el.x < rx + rw && el.y + el.h > ry && el.y < ry + rh) {
+          selection.select({ kind: el.kind, id: el.id }, true)
+        }
+      }
+    }
+    return
+  }
+  if (connect.isConnecting) {
+    const target = e.target as Node
+    const el = target instanceof Element ? target : null
+    const portEl  = el?.closest?.('.port') as SVGElement | null
+    const hostEl  = el?.closest?.('[data-id]') as SVGElement | null
+    const targetId   = hostEl?.dataset.id   ?? null
+    const targetPort = portEl?.dataset.port ?? (hostEl ? nearestPort(e, hostEl) : null)
+    const targetType = hostEl?.dataset.elementType ?? undefined
+    connect.onMouseUp(e, targetId, targetPort, targetType)
+  }
+})
+
+document.addEventListener('keydown', e => {
+  if ((e.target as HTMLElement).tagName === 'INPUT') return
+  if (e.key !== 'Delete' && e.key !== 'Backspace') return
+  selection.items.forEach(item => {
+    if (item.kind === 'class')      store.removeClass(item.id)
+    if (item.kind === 'package')    store.removePackage(item.id)
+    if (item.kind === 'storage')    store.removeStorage(item.id)
+    if (item.kind === 'actor')      store.removeActor(item.id)
+    if (item.kind === 'queue')      store.removeQueue(item.id)
+    if (item.kind === 'connection') store.removeConnection(item.id)
+  })
+  selection.clear()
+})
+
+// ─── Copy / Paste ─────────────────────────────────────────────────────────────
+
+type ClipboardEntry =
+  | { kind: 'class';   data: UmlClass }
+  | { kind: 'package'; data: UmlPackage }
+  | { kind: 'storage'; data: Storage }
+  | { kind: 'actor';   data: Actor }
+  | { kind: 'queue';   data: Queue }
+
+// Simple clipboard — array of deep-cloned entity snapshots (no connections)
+let clipboard: ClipboardEntry[] = []
+
+const PASTE_OFFSET = 20
+
+document.addEventListener('keydown', e => {
+  // Skip when typing in an input / textarea
+  if ((e.target as HTMLElement).closest('input, textarea, [contenteditable]')) return
+  const mod = e.ctrlKey || e.metaKey
+
+  if (mod && e.key === 'c') {
+    const d = store.state
+    clipboard = []
+    for (const item of selection.items) {
+      if (item.kind === 'class') {
+        const el = d.classes.find(c => c.id === item.id)
+        if (el) clipboard.push({ kind: 'class', data: JSON.parse(JSON.stringify(el)) })
+      } else if (item.kind === 'package') {
+        const el = d.packages.find(p => p.id === item.id)
+        if (el) clipboard.push({ kind: 'package', data: JSON.parse(JSON.stringify(el)) })
+      } else if (item.kind === 'storage') {
+        const el = d.storages.find(s => s.id === item.id)
+        if (el) clipboard.push({ kind: 'storage', data: JSON.parse(JSON.stringify(el)) })
+      } else if (item.kind === 'actor') {
+        const el = d.actors.find(a => a.id === item.id)
+        if (el) clipboard.push({ kind: 'actor', data: JSON.parse(JSON.stringify(el)) })
+      } else if (item.kind === 'queue') {
+        const el = d.queues.find(q => q.id === item.id)
+        if (el) clipboard.push({ kind: 'queue', data: JSON.parse(JSON.stringify(el)) })
+      }
+      // connections are intentionally excluded
+    }
+  }
+
+  if (mod && e.key === 'v') {
+    if (clipboard.length === 0) return
+    e.preventDefault()
+    selection.clear()
+    for (const entry of clipboard) {
+      const newId = crypto.randomUUID()
+      const pos = {
+        x: entry.data.position.x + PASTE_OFFSET,
+        y: entry.data.position.y + PASTE_OFFSET,
+      }
+      if (entry.kind === 'class') {
+        const copy = { ...entry.data, id: newId, position: pos }
+        store.addClass(copy)
+        selection.select({ kind: 'class', id: newId }, true)
+      } else if (entry.kind === 'package') {
+        const copy = { ...entry.data, id: newId, position: pos }
+        store.addPackage(copy)
+        selection.select({ kind: 'package', id: newId }, true)
+      } else if (entry.kind === 'storage') {
+        const copy = { ...entry.data, id: newId, position: pos }
+        store.addStorage(copy)
+        selection.select({ kind: 'storage', id: newId }, true)
+      } else if (entry.kind === 'actor') {
+        const copy = { ...entry.data, id: newId, position: pos }
+        store.addActor(copy)
+        selection.select({ kind: 'actor', id: newId }, true)
+      } else if (entry.kind === 'queue') {
+        const copy = { ...entry.data, id: newId, position: pos }
+        store.addQueue(copy)
+        selection.select({ kind: 'queue', id: newId }, true)
+      }
+    }
+    // Shift clipboard so repeated pastes cascade rather than stack
+    clipboard = clipboard.map(entry => ({
+      ...entry,
+      data: { ...entry.data, position: { x: entry.data.position.x + PASTE_OFFSET, y: entry.data.position.y + PASTE_OFFSET } },
+    })) as typeof clipboard
+  }
+})
+
+// ─── Save / Load file ─────────────────────────────────────────────────────────
+
+document.addEventListener('keydown', e => {
+  if ((e.target as HTMLElement).closest('input, textarea, [contenteditable]')) return
+  const mod = e.ctrlKey || e.metaKey
+  if (!mod) return
+
+  if (e.shiftKey && e.key === 'S') {
+    e.preventDefault()
+    saveDiagramToFile(store.state)
+  }
+
+  if (e.shiftKey && e.key === 'O') {
+    e.preventDefault()
+    loadDiagramFromFile(d => {
+      store.load(d)
+      saveDiagram(d)
+    })
+  }
+})
+
+// ─── Pan & zoom ───────────────────────────────────────────────────────────────
+
+let panActive = false
+let panStart = { x: 0, y: 0 }
+let vpStart  = { x: 0, y: 0 }
+
+svg.addEventListener('mousedown', e => {
+  if (toolbar.activeTool !== 'pan') return
+  panActive = true
+  panStart = { x: e.clientX, y: e.clientY }
+  vpStart  = { x: store.state.viewport.x, y: store.state.viewport.y }
+})
+
+window.addEventListener('mousemove', e => {
+  if (!panActive) return
+  store.updateViewport({ x: vpStart.x + e.clientX - panStart.x, y: vpStart.y + e.clientY - panStart.y })
+  applyViewport()
+})
+
+window.addEventListener('mouseup', () => { panActive = false })
+
+svg.addEventListener('wheel', e => {
+  e.preventDefault()
+  const vp = store.state.viewport
+  const newZoom = Math.min(4, Math.max(0.2, vp.zoom * (e.deltaY < 0 ? 1.1 : 0.9)))
+  store.updateViewport({ zoom: newZoom })
+  applyViewport()
+}, { passive: false })
+
+// ─── Zoom indicator / controller ─────────────────────────────────────────────
+
+const canvasContainer = document.getElementById('canvas-container')!
+
+const zoomCtrl = document.createElement('div')
+zoomCtrl.id = 'zoom-ctrl'
+zoomCtrl.innerHTML = `
+  <button id="zoom-out" class="zoom-btn" title="Zoom out (scroll down)">−</button>
+  <span id="zoom-label" class="zoom-label">100%</span>
+  <button id="zoom-in"  class="zoom-btn" title="Zoom in (scroll up)">+</button>
+  <button id="zoom-reset" class="zoom-btn zoom-reset" title="Reset zoom">⟳</button>
+`
+canvasContainer.appendChild(zoomCtrl)
+
+const zoomLabel = document.getElementById('zoom-label')!
+
+function updateZoomLabel() {
+  const z = store.state.viewport.zoom
+  zoomLabel.textContent = `${Math.round(z * 100)}%`
+}
+
+document.getElementById('zoom-out')!.addEventListener('click', () => {
+  const vp = store.state.viewport
+  const newZoom = Math.min(4, Math.max(0.2, vp.zoom * 0.9))
+  store.updateViewport({ zoom: newZoom })
+  applyViewport()
+  updateZoomLabel()
+})
+
+document.getElementById('zoom-in')!.addEventListener('click', () => {
+  const vp = store.state.viewport
+  const newZoom = Math.min(4, Math.max(0.2, vp.zoom * 1.1))
+  store.updateViewport({ zoom: newZoom })
+  applyViewport()
+  updateZoomLabel()
+})
+
+document.getElementById('zoom-reset')!.addEventListener('click', () => {
+  store.updateViewport({ zoom: 1, x: 0, y: 0 })
+  applyViewport()
+  updateZoomLabel()
+})
+
+function applyViewport() {
+  const { x, y, zoom } = store.state.viewport
+  viewGroup.setAttribute('transform', `translate(${x},${y}) scale(${zoom})`)
+  updateZoomLabel()
+}
+
+// ─── Build initial diagram ────────────────────────────────────────────────────
+
+function rebuildAll() {
+  clsLayer.innerHTML = ''
+  pkgLayer.innerHTML = ''
+  storageLayer.innerHTML = ''
+  actorLayer.innerHTML = ''
+  queueLayer.innerHTML = ''
+  connLayer.innerHTML = ''
+  classRenderers.clear()
+  pkgRenderers.clear()
+  storageRenderers.clear()
+  actorRenderers.clear()
+  queueRenderers.clear()
+  connRenderers.clear()
+
+  const d = store.state
+  d.packages.forEach(addPackageRenderer)
+  d.storages.forEach(addStorageRenderer)
+  d.actors.forEach(addActorRenderer)
+  d.queues.forEach(addQueueRenderer)
+  d.classes.forEach(addClassRenderer)
+  d.connections.forEach(addConnectionRenderer)
+  refreshConnections()
+  applyViewport()
+}
+
+rebuildAll()

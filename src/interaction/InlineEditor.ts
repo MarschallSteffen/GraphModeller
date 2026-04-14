@@ -1,0 +1,71 @@
+const SVG_NS = 'http://www.w3.org/2000/svg'
+
+export class InlineEditor {
+  private active: {
+    foreignObject: SVGForeignObjectElement
+    input: HTMLInputElement
+    onCommit: (value: string) => void
+  } | null = null
+
+  /**
+   * Replace `textEl` with an editable input. Commits on Enter/blur, cancels on Escape.
+   */
+  edit(
+    textEl: SVGTextElement,
+    initialValue: string,
+    onCommit: (value: string) => void,
+  ) {
+    this.cancel()
+
+    const bbox = textEl.getBBox()
+    const fo = document.createElementNS(SVG_NS, 'foreignObject')
+    fo.setAttribute('x', String(bbox.x - 4))
+    fo.setAttribute('y', String(bbox.y - 2))
+    fo.setAttribute('width', String(Math.max(bbox.width + 16, 120)))
+    fo.setAttribute('height', String(bbox.height + 8))
+
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.value = initialValue
+    input.classList.add('inline-input')
+
+    fo.appendChild(input)
+    textEl.parentElement?.appendChild(fo)
+    textEl.style.display = 'none'
+
+    const commit = () => {
+      const val = input.value.trim()
+      this.cleanup(textEl, fo)
+      if (val) onCommit(val)
+    }
+
+    const cancel = () => this.cleanup(textEl, fo)
+
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); commit() }
+      if (e.key === 'Escape') { e.preventDefault(); cancel() }
+    })
+    input.addEventListener('blur', commit)
+
+    this.active = { foreignObject: fo, input, onCommit }
+
+    requestAnimationFrame(() => {
+      input.focus()
+      input.select()
+    })
+  }
+
+  cancel() {
+    if (!this.active) return
+    const { foreignObject } = this.active
+    const textEl = foreignObject.parentElement?.querySelector<SVGTextElement>('text[style*="none"]')
+    if (textEl) this.cleanup(textEl, foreignObject)
+    this.active = null
+  }
+
+  private cleanup(textEl: SVGTextElement, fo: SVGForeignObjectElement) {
+    textEl.style.display = ''
+    fo.remove()
+    this.active = null
+  }
+}
