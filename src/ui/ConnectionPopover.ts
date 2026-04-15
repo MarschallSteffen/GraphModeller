@@ -110,6 +110,7 @@ export function showConnectionPopover(
   const flipBtn = showFlip ? `<button class="conn-flip-btn" title="Flip / reverse arrow direction">⇄</button>` : ''
 
   const multHtml = showMultiplicity ? `
+    <div class="popover-section-label">Multiplicity</div>
     <div class="conn-mult-row">
       <select id="cp-src" class="conn-mult-sel" title="Source multiplicity">
         ${MULTIPLICITIES.map(m => `<option value="${m}"${(current?.srcMult ?? '') === m ? ' selected' : ''}>${m || '—'}</option>`).join('')}
@@ -123,6 +124,7 @@ export function showConnectionPopover(
 
   const activeElbow: ElbowMode = current?.elbowMode ?? 'auto'
   const elbowHtml = onElbowChange ? `
+    <div class="popover-section-label">Routing</div>
     <div class="conn-elbow-row">
       <button class="conn-elbow-btn${activeElbow === 'auto' ? ' active' : ''}" data-elbow="auto" title="Auto route">⊹</button>
       <button class="conn-elbow-btn${activeElbow === 'min'  ? ' active' : ''}" data-elbow="min"  title="Force lower-left corner">⌞</button>
@@ -131,6 +133,7 @@ export function showConnectionPopover(
   ` : ''
 
   popover.innerHTML = `
+    <div class="popover-section-label">Type</div>
     <div class="conn-type-row">
       ${typeButtonsHtml}
       ${flipBtn}

@@ -31,7 +31,7 @@ export function showMsgPopover(
   popover.classList.add('popover', 'conn-popover')
   popover.style.left = `${screenX}px`
   popover.style.top  = `${screenY}px`
-  popover.innerHTML = `<div class="conn-type-row">${kindButtons}</div>`
+  popover.innerHTML = `<div class="popover-section-label">Kind</div><div class="conn-type-row">${kindButtons}</div>`
 
   layer.appendChild(popover)
 

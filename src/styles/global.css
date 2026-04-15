@@ -643,6 +643,13 @@ body {
   padding: 6px 8px;
   gap: 4px;
 }
+.popover-section-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--ctp-overlay0);
+  margin-top: 2px;
+}
 
 .conn-type-row {
   display: flex;
