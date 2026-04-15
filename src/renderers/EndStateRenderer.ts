@@ -37,7 +37,7 @@ export class EndStateRenderer {
     this.update(endState)
 
     store.on(ev => {
-      if (ev.type === 'endstate:update' && (ev.payload as EndState).id === endState.id) {
+      if (ev.type === 'end-state:update' && (ev.payload as EndState).id === endState.id) {
         this.endState = ev.payload as EndState
         this.update(this.endState)
       }

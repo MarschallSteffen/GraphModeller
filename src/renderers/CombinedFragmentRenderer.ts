@@ -31,7 +31,7 @@ export class CombinedFragmentRenderer {
     container.appendChild(this.el)
 
     _store.on(ev => {
-      if (ev.type === 'seqfragment:update' && (ev.payload as CombinedFragment).id === frag.id) {
+      if (ev.type === 'seq-fragment:update' && (ev.payload as CombinedFragment).id === frag.id) {
         this.frag = ev.payload as CombinedFragment
         this.update(this.frag)
       }

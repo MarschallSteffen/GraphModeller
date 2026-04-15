@@ -40,7 +40,7 @@ export class UseCaseRenderer {
     this.update(useCase)
 
     store.on(ev => {
-      if (ev.type === 'usecase:update' && (ev.payload as UseCase).id === useCase.id) {
+      if (ev.type === 'use-case:update' && (ev.payload as UseCase).id === useCase.id) {
         this.useCase = ev.payload as UseCase
         this.update(this.useCase)
       }

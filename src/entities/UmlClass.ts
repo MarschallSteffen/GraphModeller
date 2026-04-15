@@ -1,20 +1,13 @@
 import type { Attribute } from './Attribute.ts'
 import type { Method } from './Method.ts'
-
-export interface Point {
-  x: number
-  y: number
-}
-
-export interface Size {
-  w: number
-  h: number
-}
+export type { Point, Size } from './common.ts'
+import type { Point, Size } from './common.ts'
 
 export type Stereotype = 'class' | 'abstract' | 'interface' | 'enum'
 
 export interface UmlClass {
   id: string
+  elementType: 'uml-class'
   name: string
   stereotype: Stereotype
   packageId: string | null
@@ -28,6 +21,7 @@ export interface UmlClass {
 export function createUmlClass(partial: Partial<UmlClass> & { name: string }): UmlClass {
   return {
     id: crypto.randomUUID(),
+    elementType: 'uml-class',
     stereotype: 'class',
     packageId: null,
     attributes: [],

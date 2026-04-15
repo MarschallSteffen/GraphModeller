@@ -36,7 +36,7 @@ export class SequenceDiagramRenderer {
     container.appendChild(this.el)
 
     store.on(ev => {
-      if (ev.type === 'seqdiagram:update' && (ev.payload as SequenceDiagram).id === sd.id) {
+      if (ev.type === 'seq-diagram:update' && (ev.payload as SequenceDiagram).id === sd.id) {
         this.sd = ev.payload as SequenceDiagram
         this.syncLifelineRenderers()
         this.update(this.sd)

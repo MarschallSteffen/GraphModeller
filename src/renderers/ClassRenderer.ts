@@ -187,8 +187,6 @@ export class ClassRenderer {
     updatePortPositions(this.portsGroup, this.computedW, this.computedH, portPosition)
   }
 
-  getSize() { return { w: this.computedW, h: this.computedH } }
-
   getRenderedSize() { return { w: this.computedW, h: this.computedH } }
 
   getContentMinSize() {

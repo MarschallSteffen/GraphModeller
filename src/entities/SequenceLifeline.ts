@@ -1,3 +1,5 @@
+import type { Point, Size } from './common.ts'
+
 export interface SequenceMessage {
   id: string
   label: string
@@ -17,8 +19,8 @@ export interface SequenceLifeline {
   elementType: 'seq-lifeline'
   name: string
   messages: SequenceMessage[]
-  position: { x: number; y: number }
-  size: { w: number; h: number }
+  position: Point
+  size: Size
 }
 
 export function createSequenceLifeline(x: number, y: number): SequenceLifeline {

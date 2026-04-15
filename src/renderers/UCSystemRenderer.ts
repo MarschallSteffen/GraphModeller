@@ -40,7 +40,7 @@ export class UCSystemRenderer {
     this.update(system)
 
     store.on(ev => {
-      if (ev.type === 'ucsystem:update' && (ev.payload as UCSystem).id === system.id) {
+      if (ev.type === 'uc-system:update' && (ev.payload as UCSystem).id === system.id) {
         this.system = ev.payload as UCSystem
         this.update(this.system)
       }

@@ -1,4 +1,4 @@
-import type { Point, Size } from './UmlClass.ts'
+import type { Point, Size } from './common.ts'
 
 export interface UCSystem {
   id: string

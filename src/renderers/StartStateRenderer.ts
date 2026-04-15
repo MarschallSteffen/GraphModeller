@@ -33,7 +33,7 @@ export class StartStateRenderer {
     this.update(startState)
 
     store.on(ev => {
-      if (ev.type === 'startstate:update' && (ev.payload as StartState).id === startState.id) {
+      if (ev.type === 'start-state:update' && (ev.payload as StartState).id === startState.id) {
         this.startState = ev.payload as StartState
         this.update(this.startState)
       }

@@ -41,6 +41,7 @@ import type { SequenceDiagram } from './entities/SequenceDiagram.ts'
 import { createSequenceLifeline } from './entities/SequenceLifeline.ts'
 import { createCombinedFragment } from './entities/CombinedFragment.ts'
 import { createDiagram } from './entities/Diagram.ts'
+import type { Diagram } from './entities/Diagram.ts'
 import type { UmlClass } from './entities/UmlClass.ts'
 import type { UmlPackage } from './entities/Package.ts'
 import type { Storage } from './entities/Storage.ts'
@@ -197,6 +198,57 @@ const endStateRenderers   = new Map<string, EndStateRenderer>()
 const seqDiagramRenderers    = new Map<string, SequenceDiagramRenderer>()
 const seqFragmentRenderers  = new Map<string, CombinedFragmentRenderer>()
 const connRenderers     = new Map<string, ConnectionRenderer>()
+
+// ─── Unified element descriptor table ────────────────────────────────────────
+// Enables generic loops for selection, copy/paste, delete, rubber-band, etc.
+
+interface AnyRenderer {
+  readonly el: SVGGElement
+  setSelected(s: boolean): void
+  getRenderedSize(): { w: number; h: number }
+  destroy?(): void
+}
+
+interface ElementDesc {
+  kind: ElementKind
+  collection: keyof Diagram
+  renderers: Map<string, AnyRenderer>
+  remove: (id: string) => void
+  add: (el: any) => void
+}
+
+// Filled after store is available (below). Order matters for z-order in rebuildAll.
+let ELEMENTS: ElementDesc[] = []
+
+function initElementDescriptors() {
+  ELEMENTS = [
+    { kind: 'package',     collection: 'packages',          renderers: pkgRenderers as Map<string, AnyRenderer>,           remove: id => store.removePackage(id),           add: el => store.addPackage(el) },
+    { kind: 'storage',     collection: 'storages',          renderers: storageRenderers as Map<string, AnyRenderer>,       remove: id => store.removeStorage(id),           add: el => store.addStorage(el) },
+    { kind: 'actor',       collection: 'actors',            renderers: actorRenderers as Map<string, AnyRenderer>,         remove: id => store.removeActor(id),             add: el => store.addActor(el) },
+    { kind: 'queue',       collection: 'queues',            renderers: queueRenderers as Map<string, AnyRenderer>,         remove: id => store.removeQueue(id),             add: el => store.addQueue(el) },
+    { kind: 'use-case',    collection: 'useCases',          renderers: ucRenderers as Map<string, AnyRenderer>,            remove: id => store.removeUseCase(id),           add: el => store.addUseCase(el) },
+    { kind: 'uc-system',   collection: 'ucSystems',         renderers: ucSystemRenderers as Map<string, AnyRenderer>,      remove: id => store.removeUCSystem(id),          add: el => store.addUCSystem(el) },
+    { kind: 'state',       collection: 'states',            renderers: stateRenderers as Map<string, AnyRenderer>,         remove: id => store.removeState(id),             add: el => store.addState(el) },
+    { kind: 'start-state', collection: 'startStates',       renderers: startStateRenderers as Map<string, AnyRenderer>,    remove: id => store.removeStartState(id),        add: el => store.addStartState(el) },
+    { kind: 'end-state',   collection: 'endStates',         renderers: endStateRenderers as Map<string, AnyRenderer>,      remove: id => store.removeEndState(id),          add: el => store.addEndState(el) },
+    { kind: 'seq-diagram', collection: 'sequenceDiagrams',  renderers: seqDiagramRenderers as Map<string, AnyRenderer>,    remove: id => store.removeSequenceDiagram(id),   add: el => store.addSequenceDiagram(el) },
+    { kind: 'seq-fragment',collection: 'combinedFragments', renderers: seqFragmentRenderers as Map<string, AnyRenderer>,   remove: id => store.removeCombinedFragment(id),  add: el => store.addCombinedFragment(el) },
+    { kind: 'class',       collection: 'classes',           renderers: classRenderers as Map<string, AnyRenderer>,         remove: id => store.removeClass(id),             add: el => store.addClass(el) },
+  ]
+}
+initElementDescriptors()
+
+/** Get all elements as {kind, id, x, y, w, h} for rubber-band / hit-testing */
+function getAllElementRects() {
+  const d = store.state
+  return ELEMENTS.flatMap(desc => {
+    const items = (d[desc.collection] as Array<{ id: string; position: { x: number; y: number }; size: { w: number; h: number } }>) ?? []
+    return items.map(el => {
+      const rs = desc.renderers.get(el.id)?.getRenderedSize() ?? el.size
+      return { kind: desc.kind as ElementKind, id: el.id, x: el.position.x, y: el.position.y, w: rs.w, h: rs.h }
+    })
+  })
+}
 
 // ─── SVG helper ───────────────────────────────────────────────────────────────
 
@@ -783,48 +835,25 @@ function findElement(
   d: Readonly<ReturnType<typeof store.state.valueOf>>,
   id: string,
 ): { el: AnyElement; type: string } | undefined {
-  const cls = (d as typeof store.state).classes.find((c: { id: string }) => c.id === id)
-  if (cls) return { el: cls as AnyElement, type: 'uml-class' }
-  const pkg = (d as typeof store.state).packages.find((p: { id: string }) => p.id === id)
-  if (pkg) return { el: pkg as AnyElement, type: 'uml-package' }
-  const st = (d as typeof store.state).storages.find((s: { id: string }) => s.id === id)
-  if (st) return { el: st as AnyElement, type: 'storage' }
-  const ac = (d as typeof store.state).actors.find((a: { id: string }) => a.id === id)
-  if (ac) return { el: ac as AnyElement, type: (ac as Actor).elementType }
-  const q = (d as typeof store.state).queues.find((q: { id: string }) => q.id === id)
-  if (q) return { el: q as AnyElement, type: 'queue' }
-  const uc = (d as typeof store.state).useCases.find((u: { id: string }) => u.id === id)
-  if (uc) return { el: uc as AnyElement, type: 'use-case' }
-  const ucs = (d as typeof store.state).ucSystems.find((u: { id: string }) => u.id === id)
-  if (ucs) return { el: ucs as AnyElement, type: 'uc-system' }
-  const stEl = (d as typeof store.state).states?.find((s: { id: string }) => s.id === id)
-  if (stEl) return { el: stEl as AnyElement, type: 'state' }
-  const ss = (d as typeof store.state).startStates?.find((s: { id: string }) => s.id === id)
-  if (ss) return { el: ss as AnyElement, type: 'start-state' }
-  const es = (d as typeof store.state).endStates?.find((s: { id: string }) => s.id === id)
-  if (es) return { el: es as AnyElement, type: 'end-state' }
-  const seqSD = (d as typeof store.state).sequenceDiagrams?.find((s: { id: string }) => s.id === id)
-  if (seqSD) return { el: seqSD as AnyElement, type: 'seq-diagram' }
-  const seqFr = (d as typeof store.state).combinedFragments?.find((f: { id: string }) => f.id === id)
-  if (seqFr) return { el: seqFr as AnyElement, type: 'seq-fragment' }
+  for (const desc of ELEMENTS) {
+    const items = (d as typeof store.state)[desc.collection] as Array<{ id: string }> | undefined
+    const el = items?.find(e => e.id === id)
+    if (el) {
+      // Actors have sub-types; use entity's elementType when available
+      const type = (el as { elementType?: string }).elementType ?? desc.kind
+      return { el: el as unknown as AnyElement, type }
+    }
+  }
   return undefined
 }
 
 /** Get the rendered (possibly expanded) size for an element — for use in connection routing */
 function getRenderedSizeFor(id: string, found: { el: AnyElement; type: string }): { w: number; h: number } {
-  return classRenderers.get(id)?.getRenderedSize()
-    ?? pkgRenderers.get(id)?.getRenderedSize()
-    ?? storageRenderers.get(id)?.getRenderedSize()
-    ?? actorRenderers.get(id)?.getRenderedSize()
-    ?? queueRenderers.get(id)?.getRenderedSize()
-    ?? ucRenderers.get(id)?.getRenderedSize()
-    ?? ucSystemRenderers.get(id)?.getRenderedSize()
-    ?? stateRenderers.get(id)?.getRenderedSize()
-    ?? startStateRenderers.get(id)?.getRenderedSize()
-    ?? endStateRenderers.get(id)?.getRenderedSize()
-    ?? seqDiagramRenderers.get(id)?.getRenderedSize()
-    ?? seqFragmentRenderers.get(id)?.getRenderedSize()
-    ?? found.el.size
+  for (const desc of ELEMENTS) {
+    const r = desc.renderers.get(id)
+    if (r) return r.getRenderedSize()
+  }
+  return found.el.size
 }
 
 // ─── Properties panel helper ──────────────────────────────────────────────────
@@ -1322,21 +1351,21 @@ store.on(ev => {
   if (ev.type === 'actor:remove')     { actorRenderers.get(ev.payload as string)?.el.remove(); actorRenderers.delete(ev.payload as string) }
   if (ev.type === 'queue:add')        addQueueRenderer(ev.payload as Queue)
   if (ev.type === 'queue:remove')     { queueRenderers.get(ev.payload as string)?.el.remove(); queueRenderers.delete(ev.payload as string) }
-  if (ev.type === 'usecase:add')      addUseCaseRenderer(ev.payload as UseCase)
-  if (ev.type === 'usecase:remove')   { ucRenderers.get(ev.payload as string)?.el.remove(); ucRenderers.delete(ev.payload as string) }
-  if (ev.type === 'ucsystem:add')     addUCSystemRenderer(ev.payload as UCSystem)
-  if (ev.type === 'ucsystem:remove')  { ucSystemRenderers.get(ev.payload as string)?.el.remove(); ucSystemRenderers.delete(ev.payload as string) }
+  if (ev.type === 'use-case:add')      addUseCaseRenderer(ev.payload as UseCase)
+  if (ev.type === 'use-case:remove')   { ucRenderers.get(ev.payload as string)?.el.remove(); ucRenderers.delete(ev.payload as string) }
+  if (ev.type === 'uc-system:add')     addUCSystemRenderer(ev.payload as UCSystem)
+  if (ev.type === 'uc-system:remove')  { ucSystemRenderers.get(ev.payload as string)?.el.remove(); ucSystemRenderers.delete(ev.payload as string) }
   if (ev.type === 'state:add')        addStateRenderer(ev.payload as State)
   if (ev.type === 'state:remove')     { stateRenderers.get(ev.payload as string)?.el.remove(); stateRenderers.delete(ev.payload as string) }
-  if (ev.type === 'startstate:add')   addStartStateRenderer(ev.payload as StartState)
-  if (ev.type === 'startstate:remove') { startStateRenderers.get(ev.payload as string)?.el.remove(); startStateRenderers.delete(ev.payload as string) }
-  if (ev.type === 'endstate:add')     addEndStateRenderer(ev.payload as EndState)
-  if (ev.type === 'endstate:remove')  { endStateRenderers.get(ev.payload as string)?.el.remove(); endStateRenderers.delete(ev.payload as string) }
-  if (ev.type === 'seqdiagram:add')   { addSeqDiagramRenderer(ev.payload as SequenceDiagram); refreshSequenceConnections() }
-  if (ev.type === 'seqdiagram:update') { refreshSequenceConnections(); refreshLifelineAddButtons() }
-  if (ev.type === 'seqdiagram:remove') { seqDiagramRenderers.get(ev.payload as string)?.destroy(); seqDiagramRenderers.delete(ev.payload as string) }
-  if (ev.type === 'seqfragment:add')  addSeqFragmentRenderer(ev.payload as CombinedFragment)
-  if (ev.type === 'seqfragment:remove') { seqFragmentRenderers.get(ev.payload as string)?.destroy(); seqFragmentRenderers.delete(ev.payload as string) }
+  if (ev.type === 'start-state:add')   addStartStateRenderer(ev.payload as StartState)
+  if (ev.type === 'start-state:remove') { startStateRenderers.get(ev.payload as string)?.el.remove(); startStateRenderers.delete(ev.payload as string) }
+  if (ev.type === 'end-state:add')     addEndStateRenderer(ev.payload as EndState)
+  if (ev.type === 'end-state:remove')  { endStateRenderers.get(ev.payload as string)?.el.remove(); endStateRenderers.delete(ev.payload as string) }
+  if (ev.type === 'seq-diagram:add')   { addSeqDiagramRenderer(ev.payload as SequenceDiagram); refreshSequenceConnections() }
+  if (ev.type === 'seq-diagram:update') { refreshSequenceConnections(); refreshLifelineAddButtons() }
+  if (ev.type === 'seq-diagram:remove') { seqDiagramRenderers.get(ev.payload as string)?.destroy(); seqDiagramRenderers.delete(ev.payload as string) }
+  if (ev.type === 'seq-fragment:add')  addSeqFragmentRenderer(ev.payload as CombinedFragment)
+  if (ev.type === 'seq-fragment:remove') { seqFragmentRenderers.get(ev.payload as string)?.destroy(); seqFragmentRenderers.delete(ev.payload as string) }
   if (ev.type === 'connection:add')   { addConnectionRenderer(ev.payload as Connection); refreshConnections() }
   if (ev.type === 'connection:remove') {
     connRenderers.get(ev.payload as string)?.el.remove()
@@ -1354,12 +1383,12 @@ store.on(ev => {
     selection.clear()
   }
 
-  if (['class:update', 'package:update', 'storage:update', 'actor:update', 'queue:update', 'connection:update', 'usecase:update', 'ucsystem:update', 'state:update', 'startstate:update', 'endstate:update'].includes(ev.type)) {
+  if (['class:update', 'package:update', 'storage:update', 'actor:update', 'queue:update', 'connection:update', 'use-case:update', 'uc-system:update', 'state:update', 'start-state:update', 'end-state:update'].includes(ev.type)) {
     refreshConnections()
     showPropertiesForSelection()
   }
 
-  if (['seqfragment:update'].includes(ev.type)) {
+  if (['seq-fragment:update'].includes(ev.type)) {
     refreshSequenceConnections()
   }
 
@@ -1862,18 +1891,7 @@ function refreshSeqDiagram(sd: SequenceDiagram, sdR: SequenceDiagramRenderer) {
 
 selection.onChange(items => {
   const ids = new Set(items.map(i => i.id))
-  classRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
-  pkgRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
-  storageRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
-  actorRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
-  queueRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
-  ucRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
-  ucSystemRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
-  stateRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
-  startStateRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
-  endStateRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
-  seqDiagramRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
-  seqFragmentRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
+  ELEMENTS.forEach(d => d.renderers.forEach((r, id) => r.setSelected(ids.has(id))))
   connRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
 
   // Show + buttons when exactly one seq-diagram is selected
@@ -2016,18 +2034,7 @@ svg.addEventListener('mousemove', e => {
   // Collect all element renderers so we can set cursor directly on each <g>
   // (CSS cursor:move on the element classes overrides svg.style.cursor)
   const allRendererEls = new Map<string, SVGGElement>()
-  classRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
-  pkgRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
-  storageRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
-  actorRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
-  queueRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
-  ucRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
-  ucSystemRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
-  stateRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
-  startStateRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
-  endStateRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
-  seqDiagramRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
-  seqFragmentRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
+  ELEMENTS.forEach(d => d.renderers.forEach((r, id) => allRendererEls.set(id, r.el)))
 
   // No resize cursor when multiple elements are selected
   if (selection.items.length > 1) {
@@ -2035,21 +2042,7 @@ svg.addEventListener('mousemove', e => {
     return
   }
 
-  const d = store.state
-  const allElements = [
-    ...d.classes.map(c => { const s = classRenderers.get(c.id)?.getRenderedSize() ?? c.size; return { kind: 'class' as const, id: c.id, x: c.position.x, y: c.position.y, w: s.w, h: s.h } }),
-    ...d.packages.map(p => { const s = pkgRenderers.get(p.id)?.getRenderedSize() ?? p.size; return { kind: 'package' as const, id: p.id, x: p.position.x, y: p.position.y, w: s.w, h: s.h } }),
-    ...d.storages.map(s => { const rs = storageRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'storage' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
-    ...d.actors.map(a => { const s = actorRenderers.get(a.id)?.getRenderedSize() ?? a.size; return { kind: 'actor' as const, id: a.id, x: a.position.x, y: a.position.y, w: s.w, h: s.h } }),
-    ...d.queues.map(q => { const s = queueRenderers.get(q.id)?.getRenderedSize() ?? q.size; return { kind: 'queue' as const, id: q.id, x: q.position.x, y: q.position.y, w: s.w, h: s.h } }),
-    ...d.useCases.map(u => { const s = ucRenderers.get(u.id)?.getRenderedSize() ?? u.size; return { kind: 'use-case' as const, id: u.id, x: u.position.x, y: u.position.y, w: s.w, h: s.h } }),
-    ...d.ucSystems.map(u => { const s = ucSystemRenderers.get(u.id)?.getRenderedSize() ?? u.size; return { kind: 'uc-system' as const, id: u.id, x: u.position.x, y: u.position.y, w: s.w, h: s.h } }),
-    ...(d.states ?? []).map(s => { const rs = stateRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'state' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
-    ...(d.startStates ?? []).map(s => { const rs = startStateRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'start-state' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
-    ...(d.endStates ?? []).map(s => { const rs = endStateRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'end-state' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
-    ...(d.sequenceDiagrams ?? []).map(s => { const rs = seqDiagramRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'seq-diagram' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
-    ...(d.combinedFragments ?? []).map(f => { const rs = seqFragmentRenderers.get(f.id)?.getRenderedSize() ?? f.size; return { kind: 'seq-fragment' as const, id: f.id, x: f.position.x, y: f.position.y, w: rs.w, h: rs.h } }),
-  ]
+  const allElements = getAllElementRects()
 
   let hit = resize.hitTest(e, allElements)
   if (hit?.kind === 'class' && (hit.edge === 'n' || hit.edge === 's')) hit = null
@@ -2075,21 +2068,7 @@ window.addEventListener('mouseup', e => {
     const rh = parseFloat(rubberBandRect.getAttribute('height') ?? '0')
     // Only commit if the rect is large enough to be intentional (not a stray click)
     if (rw > 4 || rh > 4) {
-      const d = store.state
-      const allEls = [
-        ...d.classes.map(c => { const s = classRenderers.get(c.id)?.getRenderedSize() ?? c.size; return { kind: 'class' as const, id: c.id, x: c.position.x, y: c.position.y, w: s.w, h: s.h } }),
-        ...d.packages.map(p => { const s = pkgRenderers.get(p.id)?.getRenderedSize() ?? p.size; return { kind: 'package' as const, id: p.id, x: p.position.x, y: p.position.y, w: s.w, h: s.h } }),
-        ...d.storages.map(s => { const rs = storageRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'storage' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
-        ...d.actors.map(a => { const s = actorRenderers.get(a.id)?.getRenderedSize() ?? a.size; return { kind: 'actor' as const, id: a.id, x: a.position.x, y: a.position.y, w: s.w, h: s.h } }),
-        ...d.queues.map(q => { const s = queueRenderers.get(q.id)?.getRenderedSize() ?? q.size; return { kind: 'queue' as const, id: q.id, x: q.position.x, y: q.position.y, w: s.w, h: s.h } }),
-        ...d.useCases.map(u => { const s = ucRenderers.get(u.id)?.getRenderedSize() ?? u.size; return { kind: 'use-case' as const, id: u.id, x: u.position.x, y: u.position.y, w: s.w, h: s.h } }),
-        ...d.ucSystems.map(u => { const s = ucSystemRenderers.get(u.id)?.getRenderedSize() ?? u.size; return { kind: 'uc-system' as const, id: u.id, x: u.position.x, y: u.position.y, w: s.w, h: s.h } }),
-        ...(d.states ?? []).map(s => { const rs = stateRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'state' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
-        ...(d.startStates ?? []).map(s => { const rs = startStateRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'start-state' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
-        ...(d.endStates ?? []).map(s => { const rs = endStateRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'end-state' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
-        ...(d.sequenceDiagrams ?? []).map(s => { const rs = seqDiagramRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'seq-diagram' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
-        ...(d.combinedFragments ?? []).map(f => { const rs = seqFragmentRenderers.get(f.id)?.getRenderedSize() ?? f.size; return { kind: 'seq-fragment' as const, id: f.id, x: f.position.x, y: f.position.y, w: rs.w, h: rs.h } }),
-      ]
+      const allEls = getAllElementRects()
       for (const el of allEls) {
         // Select elements whose bounds overlap the rubber-band rect
         if (el.x + el.w > rx && el.x < rx + rw && el.y + el.h > ry && el.y < ry + rh) {
@@ -2115,19 +2094,9 @@ document.addEventListener('keydown', e => {
   if ((e.target as HTMLElement).tagName === 'INPUT') return
   if (e.key !== 'Delete' && e.key !== 'Backspace') return
   selection.items.forEach(item => {
-    if (item.kind === 'class')      store.removeClass(item.id)
-    if (item.kind === 'package')    store.removePackage(item.id)
-    if (item.kind === 'storage')    store.removeStorage(item.id)
-    if (item.kind === 'actor')      store.removeActor(item.id)
-    if (item.kind === 'queue')      store.removeQueue(item.id)
-    if (item.kind === 'use-case')    store.removeUseCase(item.id)
-    if (item.kind === 'uc-system')   store.removeUCSystem(item.id)
-    if (item.kind === 'state')       store.removeState(item.id)
-    if (item.kind === 'start-state') store.removeStartState(item.id)
-    if (item.kind === 'end-state')   store.removeEndState(item.id)
-    if (item.kind === 'seq-diagram') store.removeSequenceDiagram(item.id)
-    if (item.kind === 'seq-fragment') store.removeCombinedFragment(item.id)
-    if (item.kind === 'connection') store.removeConnection(item.id)
+    if (item.kind === 'connection') { store.removeConnection(item.id); return }
+    const desc = ELEMENTS.find(d => d.kind === item.kind)
+    if (desc) desc.remove(item.id)
   })
   selection.clear()
 })
@@ -2162,43 +2131,11 @@ document.addEventListener('keydown', e => {
     const d = store.state
     clipboard = []
     for (const item of selection.items) {
-      if (item.kind === 'class') {
-        const el = d.classes.find(c => c.id === item.id)
-        if (el) clipboard.push({ kind: 'class', data: JSON.parse(JSON.stringify(el)) })
-      } else if (item.kind === 'package') {
-        const el = d.packages.find(p => p.id === item.id)
-        if (el) clipboard.push({ kind: 'package', data: JSON.parse(JSON.stringify(el)) })
-      } else if (item.kind === 'storage') {
-        const el = d.storages.find(s => s.id === item.id)
-        if (el) clipboard.push({ kind: 'storage', data: JSON.parse(JSON.stringify(el)) })
-      } else if (item.kind === 'actor') {
-        const el = d.actors.find(a => a.id === item.id)
-        if (el) clipboard.push({ kind: 'actor', data: JSON.parse(JSON.stringify(el)) })
-      } else if (item.kind === 'queue') {
-        const el = d.queues.find(q => q.id === item.id)
-        if (el) clipboard.push({ kind: 'queue', data: JSON.parse(JSON.stringify(el)) })
-      } else if (item.kind === 'use-case') {
-        const el = d.useCases.find(u => u.id === item.id)
-        if (el) clipboard.push({ kind: 'use-case', data: JSON.parse(JSON.stringify(el)) })
-      } else if (item.kind === 'uc-system') {
-        const el = d.ucSystems.find(u => u.id === item.id)
-        if (el) clipboard.push({ kind: 'uc-system', data: JSON.parse(JSON.stringify(el)) })
-      } else if (item.kind === 'state') {
-        const el = d.states?.find(s => s.id === item.id)
-        if (el) clipboard.push({ kind: 'state', data: JSON.parse(JSON.stringify(el)) })
-      } else if (item.kind === 'start-state') {
-        const el = d.startStates?.find(s => s.id === item.id)
-        if (el) clipboard.push({ kind: 'start-state', data: JSON.parse(JSON.stringify(el)) })
-      } else if (item.kind === 'end-state') {
-        const el = d.endStates?.find(s => s.id === item.id)
-        if (el) clipboard.push({ kind: 'end-state', data: JSON.parse(JSON.stringify(el)) })
-      } else if (item.kind === 'seq-diagram') {
-        const el = d.sequenceDiagrams?.find(s => s.id === item.id)
-        if (el) clipboard.push({ kind: 'seq-diagram', data: JSON.parse(JSON.stringify(el)) })
-      } else if (item.kind === 'seq-fragment') {
-        const el = d.combinedFragments?.find(f => f.id === item.id)
-        if (el) clipboard.push({ kind: 'seq-fragment', data: JSON.parse(JSON.stringify(el)) })
-      }
+      const desc = ELEMENTS.find(d => d.kind === item.kind)
+      if (!desc) continue
+      const items = (d[desc.collection] as Array<{ id: string }>) ?? []
+      const el = items.find(e => e.id === item.id)
+      if (el) clipboard.push({ kind: desc.kind, data: JSON.parse(JSON.stringify(el)) } as ClipboardEntry)
       // connections are intentionally excluded
     }
   }
@@ -2213,54 +2150,11 @@ document.addEventListener('keydown', e => {
         x: entry.data.position.x + PASTE_OFFSET,
         y: entry.data.position.y + PASTE_OFFSET,
       }
-      if (entry.kind === 'class') {
+      const desc = ELEMENTS.find(d => d.kind === entry.kind)
+      if (desc) {
         const copy = { ...entry.data, id: newId, position: pos }
-        store.addClass(copy)
-        selection.select({ kind: 'class', id: newId }, true)
-      } else if (entry.kind === 'package') {
-        const copy = { ...entry.data, id: newId, position: pos }
-        store.addPackage(copy)
-        selection.select({ kind: 'package', id: newId }, true)
-      } else if (entry.kind === 'storage') {
-        const copy = { ...entry.data, id: newId, position: pos }
-        store.addStorage(copy)
-        selection.select({ kind: 'storage', id: newId }, true)
-      } else if (entry.kind === 'actor') {
-        const copy = { ...entry.data, id: newId, position: pos }
-        store.addActor(copy)
-        selection.select({ kind: 'actor', id: newId }, true)
-      } else if (entry.kind === 'queue') {
-        const copy = { ...entry.data, id: newId, position: pos }
-        store.addQueue(copy)
-        selection.select({ kind: 'queue', id: newId }, true)
-      } else if (entry.kind === 'use-case') {
-        const copy = { ...entry.data, id: newId, position: pos }
-        store.addUseCase(copy)
-        selection.select({ kind: 'use-case', id: newId }, true)
-      } else if (entry.kind === 'uc-system') {
-        const copy = { ...entry.data, id: newId, position: pos }
-        store.addUCSystem(copy)
-        selection.select({ kind: 'uc-system', id: newId }, true)
-      } else if (entry.kind === 'state') {
-        const copy = { ...entry.data, id: newId, position: pos }
-        store.addState(copy)
-        selection.select({ kind: 'state', id: newId }, true)
-      } else if (entry.kind === 'start-state') {
-        const copy = { ...entry.data, id: newId, position: pos }
-        store.addStartState(copy)
-        selection.select({ kind: 'start-state', id: newId }, true)
-      } else if (entry.kind === 'end-state') {
-        const copy = { ...entry.data, id: newId, position: pos }
-        store.addEndState(copy)
-        selection.select({ kind: 'end-state', id: newId }, true)
-      } else if (entry.kind === 'seq-diagram') {
-        const copy = { ...entry.data, id: newId, position: pos }
-        store.addSequenceDiagram(copy)
-        selection.select({ kind: 'seq-diagram', id: newId }, true)
-      } else if (entry.kind === 'seq-fragment') {
-        const copy = { ...entry.data, id: newId, position: pos }
-        store.addCombinedFragment(copy)
-        selection.select({ kind: 'seq-fragment', id: newId }, true)
+        desc.add(copy)
+        selection.select({ kind: desc.kind, id: newId }, true)
       }
     }
     // Shift clipboard so repeated pastes cascade rather than stack
@@ -2393,18 +2287,7 @@ function rebuildAll() {
   seqLayer.innerHTML = ''
   seqConnLayer.innerHTML = ''
   connLayer.innerHTML = ''
-  classRenderers.clear()
-  pkgRenderers.clear()
-  storageRenderers.clear()
-  actorRenderers.clear()
-  queueRenderers.clear()
-  ucRenderers.clear()
-  ucSystemRenderers.clear()
-  stateRenderers.clear()
-  startStateRenderers.clear()
-  endStateRenderers.clear()
-  seqDiagramRenderers.clear()
-  seqFragmentRenderers.clear()
+  ELEMENTS.forEach(d => d.renderers.clear())
   connRenderers.clear()
 
   const d = store.state

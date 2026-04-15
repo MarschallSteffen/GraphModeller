@@ -1,7 +1,6 @@
 import type { SequenceLifeline, SequenceMessage } from '../entities/SequenceLifeline.ts'
 import { svgEl, estimateTextWidth } from './svgUtils.ts'
 
-const SVG_NS = 'http://www.w3.org/2000/svg'
 export const HEADER_H  = 40
 export const MSG_ROW_H = 40
 const MIN_W        = 140
@@ -169,7 +168,7 @@ export class SequenceLifelineRenderer {
     for (const span of spans) {
       const barH = Math.max(BAR_W, span.yEnd - span.yStart)
 
-      const bar = document.createElementNS(SVG_NS, 'rect')
+      const bar = svgEl('rect')
       bar.classList.add('seq-active-area')
       bar.setAttribute('x',      String(spineX - BAR_HALF))
       bar.setAttribute('y',      String(span.yStart))
@@ -180,7 +179,7 @@ export class SequenceLifelineRenderer {
       // Port circle at bottom of bar — drag from here to create next message
       if (span.showPort) {
         const portY = span.yStart + barH
-        const port = document.createElementNS(SVG_NS, 'circle')
+        const port = svgEl('circle')
         port.classList.add('seq-bar-port')
         port.setAttribute('cx', String(spineX))
         port.setAttribute('cy', String(portY))
@@ -207,7 +206,7 @@ export class SequenceLifelineRenderer {
     const isEmpty = this.ll.messages.length === 0
 
     slotYs.forEach((localY, slotIdx) => {
-      const circle = document.createElementNS(SVG_NS, 'circle')
+      const circle = svgEl('circle')
       circle.classList.add('seq-insert-slot')
       if (isEmpty) circle.classList.add('seq-insert-slot-empty')
       circle.setAttribute('cx', String(spineX))
@@ -245,24 +244,24 @@ export class SequenceLifelineRenderer {
     const midY = this.msgLocalYs[idx] ?? (HEADER_H + idx * MSG_ROW_H + MSG_ROW_H / 2)
     const rowY = midY - MSG_ROW_H / 2
 
-    const g = document.createElementNS(SVG_NS, 'g')
+    const g = svgEl('g')
     g.classList.add('seq-msg-row')
     g.dataset.msgIdx = String(idx)
 
     if (msg.kind === 'self') {
       // Self-call: loopback arrow rendered entirely on this lifeline
       const lx = spineX + 28
-      const path = document.createElementNS(SVG_NS, 'path')
+      const path = svgEl('path')
       path.classList.add('seq-msg-arrow')
       path.setAttribute('d', `M${spineX},${midY - 4} L${lx},${midY - 4} L${lx},${midY + 8} L${spineX},${midY + 8}`)
       path.setAttribute('fill', 'none')
-      const arrow = document.createElementNS(SVG_NS, 'path')
+      const arrow = svgEl('path')
       arrow.classList.add('seq-msg-arrow-head')
       arrow.setAttribute('d', leftOpenPath(spineX, midY + 8))
       arrow.setAttribute('fill', 'none')
 
       // Label for self-call
-      const label = document.createElementNS(SVG_NS, 'text')
+      const label = svgEl('text')
       label.classList.add('seq-msg-label')
       label.dataset.msgIdx = String(idx)
       label.textContent = msg.label
@@ -272,25 +271,25 @@ export class SequenceLifelineRenderer {
 
     } else if (msg.kind === 'return' && !msg.targetLifelineId) {
       // Unconnected return: stub pointing left with slot indicator
-      const stub = document.createElementNS(SVG_NS, 'line')
+      const stub = svgEl('line')
       stub.classList.add('seq-msg-arrow')
       stub.setAttribute('stroke-dasharray', '4 3')
       stub.setAttribute('x1', String(spineX))
       stub.setAttribute('y1', String(midY))
       stub.setAttribute('x2', String(BAR_HALF + 4))
       stub.setAttribute('y2', String(midY))
-      const head = document.createElementNS(SVG_NS, 'path')
+      const head = svgEl('path')
       head.classList.add('seq-msg-arrow-head')
       head.setAttribute('d', leftOpenPath(BAR_HALF + 4, midY))
       head.setAttribute('fill', 'none')
-      const slot = document.createElementNS(SVG_NS, 'line')
+      const slot = svgEl('line')
       slot.classList.add('seq-slot-indicator')
       slot.setAttribute('x1', String(BAR_HALF))
       slot.setAttribute('y1', String(midY - 6))
       slot.setAttribute('x2', String(BAR_HALF))
       slot.setAttribute('y2', String(midY + 6))
 
-      const label = document.createElementNS(SVG_NS, 'text')
+      const label = svgEl('text')
       label.classList.add('seq-msg-label')
       label.dataset.msgIdx = String(idx)
       label.textContent = msg.label
@@ -305,7 +304,7 @@ export class SequenceLifelineRenderer {
       // Unconnected sync/async/create: stub pointing right with slot indicator
       const arrowX = this.computedW - 10
 
-      const shaft = document.createElementNS(SVG_NS, 'line')
+      const shaft = svgEl('line')
       shaft.classList.add('seq-msg-arrow')
       shaft.setAttribute('x1', String(spineX))
       shaft.setAttribute('y1', String(midY))
@@ -316,26 +315,26 @@ export class SequenceLifelineRenderer {
       }
 
       if (msg.kind === 'sync') {
-        const poly = document.createElementNS(SVG_NS, 'polygon')
+        const poly = svgEl('polygon')
         poly.classList.add('seq-msg-arrow-head')
         poly.setAttribute('points', rightArrowPts(arrowX, midY))
         g.append(shaft, poly)
       } else {
-        const head = document.createElementNS(SVG_NS, 'path')
+        const head = svgEl('path')
         head.classList.add('seq-msg-arrow-head')
         head.setAttribute('d', rightOpenPath(arrowX, midY))
         head.setAttribute('fill', 'none')
         g.append(shaft, head)
       }
 
-      const slot = document.createElementNS(SVG_NS, 'line')
+      const slot = svgEl('line')
       slot.classList.add('seq-slot-indicator')
       slot.setAttribute('x1', String(arrowX))
       slot.setAttribute('y1', String(midY - 6))
       slot.setAttribute('x2', String(arrowX))
       slot.setAttribute('y2', String(midY + 6))
 
-      const label = document.createElementNS(SVG_NS, 'text')
+      const label = svgEl('text')
       label.classList.add('seq-msg-label')
       label.dataset.msgIdx = String(idx)
       label.textContent = msg.label

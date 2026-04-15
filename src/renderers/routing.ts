@@ -22,7 +22,7 @@
  *   ensuring any clean path (of any turn count) beats any clipping path.
  */
 
-import { absolutePortPosition } from './ports.ts'
+import { absolutePortPosition, PORT_SIDES } from './ports.ts'
 import type { ElbowMode } from '../entities/Connection.ts'
 
 export type PortSide = 'n' | 'e' | 's' | 'w'
@@ -30,7 +30,6 @@ export type PortSide = 'n' | 'e' | 's' | 'w'
 const CORNER_R  = 8    // px — rounded elbow radius
 const STUB      = 20   // px — perpendicular exit from port before first turn
 const MARGIN    = 24   // px — clearance outside an element for detour rails
-const PORT_SIDES: PortSide[] = ['n', 'e', 's', 'w']
 
 // Fewer turns wins over more turns unless the fewer-turn path is longer by
 // more than this threshold. Keeps simple shapes preferred without being rigid.
@@ -105,7 +104,7 @@ function stubPt(rect: Rect, side: PortSide, frac = 0.5): Pt {
  * The single source port closest to the target center.
  * "Closest" = Manhattan distance from the port position to the target center.
  */
-function closestSrcPort(src: Rect, tgt: Rect, allowed: PortSide[]): PortSide {
+function closestSrcPort(src: Rect, tgt: Rect, allowed: readonly PortSide[]): PortSide {
   const tcx = tgt.x + tgt.w / 2
   const tcy = tgt.y + tgt.h / 2
   let best: PortSide = allowed[0]
@@ -122,7 +121,7 @@ function closestSrcPort(src: Rect, tgt: Rect, allowed: PortSide[]): PortSide {
  * The two target ports facing toward the source port position (primary + secondary).
  * Primary = port whose outward direction most directly faces the source port.
  */
-function facingTgtPorts(tgt: Rect, srcPx: number, srcPy: number, allowed: PortSide[]): [PortSide, PortSide | null] {
+function facingTgtPorts(tgt: Rect, srcPx: number, srcPy: number, allowed: readonly PortSide[]): [PortSide, PortSide | null] {
   const dx = srcPx - (tgt.x + tgt.w / 2)
   const dy = srcPy - (tgt.y + tgt.h / 2)
 
@@ -367,8 +366,8 @@ function bestInnerForPair(
  */
 export function bestPortPair(
   src: Rect, tgt: Rect,
-  srcSides: PortSide[] = PORT_SIDES as unknown as PortSide[],
-  tgtSides: PortSide[] = PORT_SIDES as unknown as PortSide[],
+  srcSides: readonly PortSide[] = PORT_SIDES,
+  tgtSides: readonly PortSide[] = PORT_SIDES,
   elbowMode: ElbowMode = 'auto',
 ): { src: PortSide; tgt: PortSide } {
   const sp = closestSrcPort(src, tgt, srcSides)

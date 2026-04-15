@@ -1,11 +1,12 @@
 import { createSequenceLifeline } from './SequenceLifeline.ts'
 import type { SequenceLifeline } from './SequenceLifeline.ts'
+import type { Point, Size } from './common.ts'
 
 export interface SequenceDiagram {
   id: string
   elementType: 'seq-diagram'
-  position: { x: number; y: number }
-  size:     { w: number; h: number }
+  position: Point
+  size: Size
   lifelines: SequenceLifeline[]
 }
 
