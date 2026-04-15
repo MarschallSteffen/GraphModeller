@@ -614,15 +614,7 @@ function wireSeqDiagramInteraction(r: SequenceDiagramRenderer, sd: SequenceDiagr
         })
       },
       () => {
-        const latestSd = store.state.sequenceDiagrams.find(s => s.id === sd.id)
-        if (!latestSd) return
-        const latestLL = latestSd.lifelines.find(l => l.id === llId)
-        if (!latestLL) return
-        store.updateSequenceDiagram(sd.id, {
-          lifelines: latestSd.lifelines.map(l => l.id === llId
-            ? { ...l, messages: l.messages.filter((_, i) => i !== msgIdx) }
-            : l)
-        })
+        removeSeqMessage(sd.id, llId, msgIdx)
       },
       () => {},
     )
@@ -1551,6 +1543,35 @@ function refreshSequenceConnections() {
 
 // ─── Sequence diagram helpers ────────────────────────────────────────────────
 
+/** Remove a message from a lifeline and re-compact slotIndex values so there are no gaps. */
+function removeSeqMessage(sdId: string, llId: string, msgIdx: number) {
+  const latestSd = store.state.sequenceDiagrams.find(s => s.id === sdId)
+  if (!latestSd) return
+  // Remove the message
+  const updated = latestSd.lifelines.map(l =>
+    l.id === llId ? { ...l, messages: l.messages.filter((_, i) => i !== msgIdx) } : l
+  )
+  // Collect all used slotIndex values, sorted, and build a re-mapping
+  const usedSlots = new Set<number>()
+  for (const ll of updated) {
+    for (const m of ll.messages) {
+      if (m.slotIndex !== undefined) usedSlots.add(m.slotIndex)
+    }
+  }
+  const sorted = [...usedSlots].sort((a, b) => a - b)
+  const remap = new Map(sorted.map((old, i) => [old, i]))
+  // Re-assign compacted slotIndex
+  const compacted = updated.map(ll => ({
+    ...ll,
+    messages: ll.messages.map(m =>
+      m.slotIndex !== undefined && remap.has(m.slotIndex)
+        ? { ...m, slotIndex: remap.get(m.slotIndex)! }
+        : m
+    ),
+  }))
+  store.updateSequenceDiagram(sdId, { lifelines: compacted })
+}
+
 interface MsgEvent {
   slotTopY: number
   absY: number
@@ -1840,14 +1861,7 @@ function refreshSeqDiagram(sd: SequenceDiagram, sdR: SequenceDiagramRenderer) {
           })
         },
         () => {
-          const latestSd2 = store.state.sequenceDiagrams.find(s => s.id === sd.id)
-          const latestLL = latestSd2?.lifelines.find(l => l.id === srcLL.id)
-          if (!latestSd2 || !latestLL) return
-          store.updateSequenceDiagram(sd.id, {
-            lifelines: latestSd2.lifelines.map(l => l.id === srcLL.id
-              ? { ...l, messages: l.messages.filter((_, i) => i !== ev.msgIdx) }
-              : l)
-          })
+          removeSeqMessage(sd.id, srcLL.id, ev.msgIdx)
           setSelectedSeqArrow(null)
         },
         () => setSelectedSeqArrow(null),
