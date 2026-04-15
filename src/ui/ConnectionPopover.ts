@@ -1,22 +1,20 @@
-import type { ConnectionType, Multiplicity } from '../entities/Connection.ts'
+import type { ConnectionType, Multiplicity, ElbowMode } from '../entities/Connection.ts'
 import type { ElementConfig } from '../config/ElementConfig.ts'
 
 const MULTIPLICITIES: Multiplicity[] = ['', '1', '0..1', '*', '1..*', '0..*']
 
-// Icon labels and tooltips for each UML connection type
-const UML_TYPE_ICONS: Array<{ type: ConnectionType; icon: string; label: string }> = [
-  { type: 'association',  icon: '→',  label: 'Association'  },
-  { type: 'dependency',   icon: '⤳',  label: 'Dependency'   },
-  { type: 'inheritance',  icon: '▷→', label: 'Inheritance'  },
-  { type: 'realization',  icon: '▷⤳', label: 'Realization'  },
-  { type: 'composition',  icon: '◆→', label: 'Composition'  },
-  { type: 'aggregation',  icon: '◇→', label: 'Aggregation'  },
-]
-
-// Storage data-flow icons — single direction (write) and bidirectional (read-write)
-const STORAGE_TYPE_ICONS: Array<{ type: ConnectionType; icon: string; label: string }> = [
-  { type: 'write',      icon: '→',  label: 'Single direction (flip to reverse)' },
-  { type: 'read-write', icon: '⇄',  label: 'Bidirectional'                      },
+// All connection type icons in display order
+const ALL_TYPE_ICONS: Array<{ type: ConnectionType; icon: string; label: string }> = [
+  { type: 'plain',        icon: '—',  label: 'Plain line'                         },
+  { type: 'association',  icon: '→',  label: 'Association'                        },
+  { type: 'dependency',   icon: '⤳',  label: 'Dependency'                        },
+  { type: 'inheritance',  icon: '▷→', label: 'Inheritance'                        },
+  { type: 'realization',  icon: '▷⤳', label: 'Realization'                        },
+  { type: 'composition',  icon: '◆→', label: 'Composition'                        },
+  { type: 'aggregation',  icon: '◇→', label: 'Aggregation'                        },
+  { type: 'request',      icon: 'R',  label: 'Request'                            },
+  { type: 'write',        icon: '→',  label: 'Single direction (flip to reverse)' },
+  { type: 'read-write',   icon: '⇄',  label: 'Bidirectional'                      },
 ]
 
 /**
@@ -26,23 +24,37 @@ export function allowedConnectionTypes(
   srcConfig: ElementConfig | undefined,
   tgtConfig: ElementConfig | undefined,
 ): ConnectionType[] {
-  const isStorageInvolved = srcConfig?.type === 'storage' || tgtConfig?.type === 'storage'
-  if (isStorageInvolved) return ['write', 'read-write']
-
-  const isActorOrQueue = (cfg: ElementConfig | undefined) =>
-    cfg?.type === 'agent' || cfg?.type === 'human-agent' || cfg?.type === 'queue'
-  if (isActorOrQueue(srcConfig) || isActorOrQueue(tgtConfig)) return ['request']
-
   const ALL_TYPES: ConnectionType[] = [
-    'association', 'composition', 'aggregation', 'inheritance', 'realization', 'dependency',
+    'plain', 'association', 'composition', 'aggregation', 'inheritance', 'realization', 'dependency',
+    'request', 'write', 'read-write',
   ]
   const srcAllowed = srcConfig?.connectionRule?.asSource ?? null
   const tgtAllowed = tgtConfig?.connectionRule?.asTarget ?? null
-  return ALL_TYPES.filter(t => {
-    if (srcAllowed && !srcAllowed.includes(t)) return false
-    if (tgtAllowed && !tgtAllowed.includes(t)) return false
-    return true
-  })
+
+  // Union semantics: each side contributes the types it supports.
+  // null = no restriction (all types). Explicit list = only those types.
+  // Result = union of both sides' contributions, keeping ALL_TYPES order.
+  if (srcAllowed === null && tgtAllowed === null) return ALL_TYPES
+  if (srcAllowed === null) return ALL_TYPES.filter(t => tgtAllowed!.includes(t))
+  if (tgtAllowed === null) return ALL_TYPES.filter(t => srcAllowed.includes(t))
+  const union = new Set([...srcAllowed, ...tgtAllowed])
+  return ALL_TYPES.filter(t => union.has(t))
+}
+
+/**
+ * Pick the default connection type for a new connection between two elements.
+ * Returns null if no connection types are allowed for this pair.
+ * Source's preference wins over target's; both must be within the allowed set.
+ */
+export function defaultConnectionType(
+  srcConfig: ElementConfig | undefined,
+  tgtConfig: ElementConfig | undefined,
+): ConnectionType | null {
+  const allowed = allowedConnectionTypes(srcConfig, tgtConfig)
+  if (allowed.length === 0) return null
+  const preferred = srcConfig?.preferredConnectionType ?? tgtConfig?.preferredConnectionType
+  if (preferred && allowed.includes(preferred)) return preferred
+  return allowed[0]
 }
 
 /**
@@ -61,17 +73,16 @@ export function showConnectionPopover(
   srcConfig?: ElementConfig,
   tgtConfig?: ElementConfig,
   onFlip?: () => void,
-  current?: { type: ConnectionType; srcMult: string; tgtMult: string },
+  current?: { type: ConnectionType; srcMult: string; tgtMult: string; elbowMode?: ElbowMode },
+  onElbowChange?: (mode: ElbowMode) => void,
 ) {
   document.getElementById('conn-popover')?.remove()
 
   const layer = document.getElementById('popover-layer')!
   const types = allowedConnectionTypes(srcConfig, tgtConfig)
-  const isStorage  = types.includes('write') && !types.includes('association')
-  const isRequest  = types.length === 1 && types[0] === 'request'
   const showMultiplicity =
-    !isStorage && !isRequest &&
-    (srcConfig?.supportsMultiplicity ?? true) && (tgtConfig?.supportsMultiplicity ?? true)
+    (srcConfig?.supportsMultiplicity ?? true) && (tgtConfig?.supportsMultiplicity ?? true) &&
+    types.some(t => ['association', 'composition', 'aggregation', 'inheritance', 'realization', 'dependency'].includes(t))
 
   const activeType = current?.type ?? types[0] ?? 'association'
 
@@ -81,23 +92,14 @@ export function showConnectionPopover(
   popover.style.left = `${screenX}px`
   popover.style.top  = `${screenY}px`
 
-  // Build type icon buttons
-  let typeButtonsHtml = ''
-  if (isStorage) {
-    typeButtonsHtml = STORAGE_TYPE_ICONS.map(({ type, icon, label }) => `
-      <button class="conn-type-btn${activeType === type ? ' active' : ''}" data-type="${type}" title="${label}">${icon}</button>
-    `).join('')
-  } else if (isRequest) {
-    // No type buttons — request is the only option
-  } else {
-    const available = UML_TYPE_ICONS.filter(x => types.includes(x.type))
-    typeButtonsHtml = available.map(({ type, icon, label }) => `
-      <button class="conn-type-btn${activeType === type ? ' active' : ''}" data-type="${type}" title="${label}">${icon}</button>
-    `).join('')
-  }
+  // Build type icon buttons from the allowed types in display order
+  const available = ALL_TYPE_ICONS.filter(x => types.includes(x.type))
+  const typeButtonsHtml = available.map(({ type, icon, label }) => `
+    <button class="conn-type-btn${activeType === type ? ' active' : ''}" data-type="${type}" title="${label}">${icon}</button>
+  `).join('')
 
-  // Flip button: shown for everything except read-write (the only bidirectional type)
-  const showFlip = onFlip && activeType !== 'read-write'
+  // Flip button: shown only for directed connection types
+  const showFlip = onFlip && activeType !== 'read-write' && activeType !== 'plain'
   const flipBtn = showFlip ? `<button class="conn-flip-btn" title="Flip / reverse arrow direction">⇄</button>` : ''
 
   const multHtml = showMultiplicity ? `
@@ -112,12 +114,22 @@ export function showConnectionPopover(
     </div>
   ` : ''
 
+  const activeElbow: ElbowMode = current?.elbowMode ?? 'auto'
+  const elbowHtml = onElbowChange ? `
+    <div class="conn-elbow-row">
+      <button class="conn-elbow-btn${activeElbow === 'auto' ? ' active' : ''}" data-elbow="auto" title="Auto route">⊹</button>
+      <button class="conn-elbow-btn${activeElbow === 'min'  ? ' active' : ''}" data-elbow="min"  title="Force lower-left corner">⌞</button>
+      <button class="conn-elbow-btn${activeElbow === 'max'  ? ' active' : ''}" data-elbow="max"  title="Force upper-right corner">⌝</button>
+    </div>
+  ` : ''
+
   popover.innerHTML = `
     <div class="conn-type-row">
       ${typeButtonsHtml}
       ${flipBtn}
     </div>
     ${multHtml}
+    ${elbowHtml}
   `
 
   layer.appendChild(popover)
@@ -136,9 +148,9 @@ export function showConnectionPopover(
       currentType = btn.dataset.type as ConnectionType
       popover.querySelectorAll('.conn-type-btn').forEach(b => b.classList.remove('active'))
       btn.classList.add('active')
-      // Show flip only for single-direction storage connections
+      // Show flip only for directed connection types
       const flipEl = popover.querySelector<HTMLButtonElement>('.conn-flip-btn')
-      if (flipEl) flipEl.style.display = currentType === 'read-write' ? 'none' : ''
+      if (flipEl) flipEl.style.display = (currentType === 'read-write' || currentType === 'plain') ? 'none' : ''
       const { type, src, tgt } = getValues()
       onConfirm(type, src, tgt)
     })
@@ -147,6 +159,16 @@ export function showConnectionPopover(
   // Flip button — keep popover open after flip
   popover.querySelector('.conn-flip-btn')?.addEventListener('click', () => {
     onFlip?.()
+  })
+
+  // Elbow mode buttons
+  popover.querySelectorAll<HTMLButtonElement>('.conn-elbow-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.elbow as ElbowMode
+      popover.querySelectorAll('.conn-elbow-btn').forEach(b => b.classList.remove('active'))
+      btn.classList.add('active')
+      onElbowChange?.(mode)
+    })
   })
 
   // Multiplicity changes

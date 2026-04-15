@@ -37,6 +37,12 @@ export interface ElementConfig {
   /** Connection rules. Null = unrestricted. */
   connectionRule: ConnectionRule | null
   /**
+   * Preferred connection type to use as the default when creating a new connection
+   * involving this element. Must be within the allowed types. If both endpoints
+   * declare a preferred type and they differ, source preference wins.
+   */
+  preferredConnectionType?: ConnectionType
+  /**
    * Whether connections to/from this element type should show
    * multiplicity/ordinality fields in the connection popover.
    */

@@ -7,6 +7,7 @@ export interface Queue {
   position: Point
   size: Size
   multiInstance: boolean
+  flowReversed?: boolean
 }
 
 export function createQueue(partial: Partial<Queue> & { name: string }): Queue {

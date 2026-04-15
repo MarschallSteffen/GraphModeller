@@ -5,6 +5,8 @@ export type ConnectionType =
   | 'inheritance'
   | 'realization'
   | 'dependency'
+  // Plain line — no arrowheads, no decorations
+  | 'plain'
   // Storage-specific data-flow types
   | 'read'
   | 'write'
@@ -21,6 +23,8 @@ export interface ConnectionEnd {
   port: PortSide
 }
 
+export type ElbowMode = 'auto' | 'min' | 'max'
+
 export interface Connection {
   id: string
   source: ConnectionEnd
@@ -29,6 +33,7 @@ export interface Connection {
   sourceMultiplicity: Multiplicity
   targetMultiplicity: Multiplicity
   label: string
+  elbowMode?: ElbowMode
 }
 
 export function createConnection(

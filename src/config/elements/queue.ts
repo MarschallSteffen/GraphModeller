@@ -8,8 +8,9 @@ export const queueConfig: ElementConfig = {
     { id: 'w', xFrac: 0,   yFrac: 0.5 },
   ],
   connectionRule: {
-    asSource: ['request'],
-    asTarget: ['request'],
+    asSource: ['plain'],
+    asTarget: ['plain'],
   },
+  preferredConnectionType: 'plain',
   supportsMultiplicity: false,
 }

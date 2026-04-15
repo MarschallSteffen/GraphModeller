@@ -31,6 +31,7 @@ import { getElementConfig } from './config/registry.ts'
 import type { ElementKind } from './types.ts'
 import { bestPortPair, pathMidpoint } from './renderers/routing.ts'
 import type { PortSide } from './renderers/routing.ts'
+import type { ElbowMode } from './entities/Connection.ts'
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
@@ -215,7 +216,10 @@ function addConnectionRenderer(conn: Connection) {
         // Flip: swap source and target
         store.updateConnection(c.id, { source: { ...c.target }, target: { ...c.source } })
       },
-      { type: c.type, srcMult: c.sourceMultiplicity ?? '', tgtMult: c.targetMultiplicity ?? '' },
+      { type: c.type, srcMult: c.sourceMultiplicity ?? '', tgtMult: c.targetMultiplicity ?? '', elbowMode: c.elbowMode },
+      (mode: ElbowMode) => {
+        store.updateConnection(c.id, { elbowMode: mode })
+      },
     )
   })
   connLayer.appendChild(r.el)
@@ -280,7 +284,8 @@ function showPropertiesForSelection() {
   }
 
   let el: AnyElement & { multiInstance?: boolean } | undefined
-  let updateFn: (patch: { multiInstance: boolean }) => void = () => {}
+  let updateFn: (patch: { multiInstance?: boolean; flowReversed?: boolean }) => void = () => {}
+  let isQueue = false
 
   if (item.kind === 'class') {
     const c = d.classes.find(c => c.id === item.id)
@@ -293,7 +298,7 @@ function showPropertiesForSelection() {
     if (a) { el = a; updateFn = p => store.updateActor(item.id, p) }
   } else if (item.kind === 'queue') {
     const q = d.queues.find(q => q.id === item.id)
-    if (q) { el = q; updateFn = p => store.updateQueue(item.id, p) }
+    if (q) { el = q; updateFn = p => store.updateQueue(item.id, p); isQueue = true }
   }
 
   if (!el) { hideElementPropertiesPanel(); return }
@@ -303,11 +308,14 @@ function showPropertiesForSelection() {
   const screenX = svgRect.left + (el.position.x + el.size.w) * vp.zoom + vp.x + 12
   const screenY = svgRect.top  + el.position.y * vp.zoom + vp.y
 
+  const queue = isQueue ? (el as AnyElement & { flowReversed?: boolean }) : undefined
   showElementPropertiesPanel(
     screenX,
     screenY,
     el.multiInstance ?? false,
     (multiInstance) => updateFn({ multiInstance }),
+    queue ? (queue.flowReversed ?? false) : undefined,
+    queue ? (reversed) => updateFn({ flowReversed: reversed }) : undefined,
   )
 }
 
@@ -542,6 +550,7 @@ function refreshConnections() {
       { x: s2Pos.x, y: s2Pos.y, w: s2Size.w, h: s2Size.h },
       srcSides,
       tgtSides,
+      conn.elbowMode ?? 'auto',
     )
     conn.source.port = best.src
     conn.target.port = best.tgt

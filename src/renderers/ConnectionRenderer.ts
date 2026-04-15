@@ -194,6 +194,15 @@ export class ConnectionRenderer {
         symArrow.setAttribute('transform', `rotate(${mid.angle - 90})`)
       }
 
+    } else if (conn.type === 'plain') {
+      const d = orthogonalPath(x1, y1, srcPort, x2, y2, tgtPort, offset, srcRect, tgtRect)
+      this.path.setAttribute('d', d)
+      this.path.removeAttribute('marker-end')
+      this.path.removeAttribute('marker-start')
+      this.path.style.stroke = ''
+      this.pathB.style.display = 'none'
+      this.hitPath.setAttribute('d', d)
+
     } else {
       // Standard UML connection types
       const d = orthogonalPath(x1, y1, srcPort, x2, y2, tgtPort, offset, srcRect, tgtRect)

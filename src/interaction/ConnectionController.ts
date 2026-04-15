@@ -7,7 +7,7 @@ import { bestPortPair } from '../renderers/routing.ts'
 import type { PortSide as RoutePortSide } from '../renderers/routing.ts'
 import type { ElementConfig } from '../config/ElementConfig.ts'
 import { getElementConfig } from '../config/registry.ts'
-import { allowedConnectionTypes } from '../ui/ConnectionPopover.ts'
+import { defaultConnectionType } from '../ui/ConnectionPopover.ts'
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
@@ -126,9 +126,9 @@ export class ConnectionController {
     const srcConfig = getElementConfig(src.elementType)
     const tgtConfig = getElementConfig(tgtType)
 
-    // Pick default type from the allowed types for this pair
-    const allowed = allowedConnectionTypes(srcConfig, tgtConfig)
-    const defaultType: ConnectionType = allowed[0] ?? 'association'
+    // Block connection if either element disallows all connection types
+    const defaultType = defaultConnectionType(srcConfig, tgtConfig)
+    if (!defaultType) return
 
     // Compute midpoint for popover position
     const srcAbsEl = srcEl ?? tgtEl

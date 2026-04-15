@@ -6,8 +6,8 @@ export const agentConfig: ElementConfig = {
   defaultSize: { w: 120, h: 60 },
   ports: CARDINAL_PORTS,
   connectionRule: {
-    asSource: ['request'],
-    asTarget: ['request'],
+    asSource: ['plain', 'request'],
+    asTarget: ['plain', 'request'],
   },
   supportsMultiplicity: false,
 }
@@ -17,8 +17,8 @@ export const humanAgentConfig: ElementConfig = {
   defaultSize: { w: 80, h: 100 },
   ports: CARDINAL_PORTS,
   connectionRule: {
-    asSource: ['request'],
-    asTarget: ['request'],
+    asSource: ['plain', 'request'],
+    asTarget: ['plain', 'request'],
   },
   supportsMultiplicity: false,
 }

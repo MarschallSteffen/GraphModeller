@@ -82,10 +82,15 @@ export class QueueRenderer {
     const arrowX = this.computedW / 2
     const arrowY = this.computedH / 2 + 10
     const half = arrowW / 2
+    const rev = queue.flowReversed ?? false
+    const x1 = rev ? arrowX + half       : arrowX - half
+    const x2 = rev ? arrowX - half + 4   : arrowX + half - 4
+    const tipX = rev ? arrowX - half      : arrowX + half
+    const tipDir = rev ? 1 : -1
     this.flowArrow.setAttribute('d',
-      `M${(arrowX - half).toFixed(1)},${arrowY} L${(arrowX + half - 4).toFixed(1)},${arrowY} ` +
-      `M${(arrowX + half - 7).toFixed(1)},${arrowY - 3} L${(arrowX + half).toFixed(1)},${arrowY} ` +
-      `L${(arrowX + half - 7).toFixed(1)},${arrowY + 3}`
+      `M${x1.toFixed(1)},${arrowY} L${x2.toFixed(1)},${arrowY} ` +
+      `M${(tipX + tipDir * 7).toFixed(1)},${arrowY - 3} L${tipX.toFixed(1)},${arrowY} ` +
+      `L${(tipX + tipDir * 7).toFixed(1)},${arrowY + 3}`
     )
 
     updatePortPositions(this.portsGroup, this.computedW, this.computedH, portPosition)

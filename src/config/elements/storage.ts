@@ -12,8 +12,8 @@ export const storageConfig: ElementConfig = {
   defaultSize: { w: 160, h: 60 },
   ports: CARDINAL_PORTS,
   connectionRule: {
-    asSource: ['write', 'read-write'],
-    asTarget: ['write', 'read-write'],
+    asSource: ['plain', 'write', 'read-write'],
+    asTarget: ['plain', 'write', 'read-write'],
   },
   supportsMultiplicity: false,
 }

@@ -1,6 +1,6 @@
 /**
  * Floating properties panel shown when a single element is selected.
- * Currently exposes only the "Multiple instances" toggle.
+ * Currently exposes the "Multiple instances" toggle and, for queues, a flow-direction toggle.
  */
 
 let currentPanel: HTMLElement | null = null
@@ -10,6 +10,8 @@ export function showElementPropertiesPanel(
   screenY: number,
   multiInstance: boolean,
   onChange: (multiInstance: boolean) => void,
+  flowReversed?: boolean,
+  onFlowReversed?: (reversed: boolean) => void,
 ) {
   hideElementPropertiesPanel()
 
@@ -21,6 +23,15 @@ export function showElementPropertiesPanel(
   panel.style.left = `${screenX}px`
   panel.style.top  = `${screenY}px`
 
+  const flowRow = onFlowReversed != null ? `
+    <div class="popover-row">
+      <label class="props-label">
+        <input type="checkbox" id="ep-flow-rev" ${flowReversed ? 'checked' : ''}/>
+        Reverse flow arrow
+      </label>
+    </div>
+  ` : ''
+
   panel.innerHTML = `
     <div class="popover-row">
       <label class="props-label">
@@ -28,6 +39,7 @@ export function showElementPropertiesPanel(
         Multiple instances
       </label>
     </div>
+    ${flowRow}
   `
 
   layer.appendChild(panel)
@@ -36,6 +48,12 @@ export function showElementPropertiesPanel(
   panel.querySelector<HTMLInputElement>('#ep-multi')!.addEventListener('change', e => {
     onChange((e.target as HTMLInputElement).checked)
   })
+
+  if (onFlowReversed) {
+    panel.querySelector<HTMLInputElement>('#ep-flow-rev')!.addEventListener('change', e => {
+      onFlowReversed((e.target as HTMLInputElement).checked)
+    })
+  }
 }
 
 export function hideElementPropertiesPanel() {

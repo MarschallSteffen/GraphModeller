@@ -12,7 +12,10 @@ export const umlClassConfig: ElementConfig = {
   type: 'uml-class',
   defaultSize: { w: 180, h: 120 },
   ports: CARDINAL_PORTS,
-  connectionRule: null,
+  connectionRule: {
+    asSource: ['plain', 'association', 'composition', 'aggregation', 'inheritance', 'realization', 'dependency'],
+    asTarget: ['plain', 'association', 'composition', 'aggregation', 'inheritance', 'realization', 'dependency'],
+  },
   supportsMultiplicity: true,
 }
 
@@ -20,6 +23,9 @@ export const umlPackageConfig: ElementConfig = {
   type: 'uml-package',
   defaultSize: { w: 320, h: 240 },
   ports: CARDINAL_PORTS,
-  connectionRule: null,
-  supportsMultiplicity: true,
+  connectionRule: {
+    asSource: [],
+    asTarget: [],
+  },
+  supportsMultiplicity: false,
 }
