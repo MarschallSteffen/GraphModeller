@@ -424,6 +424,15 @@ body {
   stroke-linejoin: round;
 }
 
+/* ── Snap alignment guides ─────────────────────────────────────────────────── */
+.snap-guide {
+  stroke: var(--ctp-lavender);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
 /* ── Rubber-band selection rect ────────────────────────────────────────────── */
 .rubber-band {
   fill: color-mix(in srgb, var(--ctp-lavender) 12%, transparent);

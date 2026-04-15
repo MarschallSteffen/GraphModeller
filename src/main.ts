@@ -66,6 +66,31 @@ rubberBandRect.classList.add('rubber-band')
 rubberBandRect.style.display = 'none'
 viewGroup.appendChild(rubberBandRect)
 
+// Snap guide lines — rendered on top of everything else in diagram space
+const snapGuideGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+snapGuideGroup.classList.add('snap-guides')
+viewGroup.appendChild(snapGuideGroup)
+
+function updateSnapGuides(guides: import('./interaction/SnapEngine.ts').GuideLine[]) {
+  snapGuideGroup.innerHTML = ''
+  for (const g of guides) {
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line')
+    if (g.axis === 'h') {
+      line.setAttribute('x1', String(g.from))
+      line.setAttribute('x2', String(g.to))
+      line.setAttribute('y1', String(g.value))
+      line.setAttribute('y2', String(g.value))
+    } else {
+      line.setAttribute('x1', String(g.value))
+      line.setAttribute('x2', String(g.value))
+      line.setAttribute('y1', String(g.from))
+      line.setAttribute('y2', String(g.to))
+    }
+    line.classList.add('snap-guide')
+    snapGuideGroup.appendChild(line)
+  }
+}
+
 // ─── Renderer maps ────────────────────────────────────────────────────────────
 
 const classRenderers   = new Map<string, ClassRenderer>()
@@ -109,7 +134,7 @@ function getContainedElements(pkgId: string): Array<{ kind: ElementKind; id: str
   return result
 }
 
-const drag    = new DragController(store, getSvgPoint, getContainedElements)
+const drag    = new DragController(store, getSvgPoint, getContainedElements, updateSnapGuides)
 const resize  = new ResizeController(store, getSvgPoint, getMinSize, () => store.state.viewport.zoom)
 const connect = new ConnectionController(store, svg, viewGroup, getSvgPoint, showConnectionPopover)
 

@@ -1,6 +1,7 @@
 import type { DiagramStore } from '../store/DiagramStore.ts'
 import type { Selectable } from './SelectionManager.ts'
 import type { ElementKind } from '../types.ts'
+import { applySnap, type SnapRect } from './SnapEngine.ts'
 
 interface DragTarget {
   kind: ElementKind
@@ -17,12 +18,8 @@ export class DragController {
   constructor(
     private store: DiagramStore,
     private getSvgPoint: (e: MouseEvent) => DOMPoint,
-    /**
-     * Returns the ids of all non-package elements whose center lies within the
-     * given container package rect. Called when a container package drag starts
-     * so those elements are co-dragged.
-     */
     private getContainedElements: (pkgId: string) => Array<{ kind: ElementKind; id: string }> = () => [],
+    private onGuides: (guides: import('./SnapEngine.ts').GuideLine[]) => void = () => {},
   ) {}
 
   /**
@@ -37,15 +34,11 @@ export class DragController {
   ) {
     const pt = this.getSvgPoint(e)
 
-    // Determine which items to drag: if the clicked element is in the
-    // multi-selection, drag everything selected; otherwise just this one.
     const inSelection = selection.some(s => s.id === target.id && s.kind === target.kind)
     const items: Array<{ kind: ElementKind; id: string }> = inSelection
       ? (selection.filter(s => s.kind !== 'connection') as Array<{ kind: ElementKind; id: string }>)
       : [target]
 
-    // If the dragged item is a package being moved alone (single selection or
-    // not yet in selection), expand with all elements contained inside it.
     const draggingPackageAlone = target.kind === 'package' &&
       (!inSelection || (inSelection && selection.filter(s => s.kind !== 'connection').length === 1))
     if (draggingPackageAlone) {
@@ -75,14 +68,60 @@ export class DragController {
     const dx = pt.x - this.startMouseX
     const dy = pt.y - this.startMouseY
 
+    // Collect dragged-element IDs for exclusion from snap candidates
+    const draggedIds = new Set(this.active.map(t => t.id))
+
+    // Only snap single-element drags (multi-drag moves as a unit; snapping one
+    // while not moving the others would break their relative positions)
+    if (this.active.length === 1) {
+      const t = this.active[0]
+      const el = this.store.findElementById(t.kind, t.id)
+      if (el) {
+        const proposed: SnapRect = {
+          x: t.startX + dx,
+          y: t.startY + dy,
+          w: el.size.w,
+          h: el.size.h,
+        }
+
+        // Gather all other element rects as snap candidates
+        const candidates = this.getAllRects(draggedIds)
+        const { x, y, guides } = applySnap(proposed, candidates)
+
+        this.store.updateElementPosition(t.kind, t.id, { position: { x, y } })
+        this.onGuides(guides)
+        return
+      }
+    }
+
+    // Multi-element drag — no snapping, clear guides
     for (const t of this.active) {
       this.store.updateElementPosition(t.kind, t.id, {
         position: { x: t.startX + dx, y: t.startY + dy },
       })
     }
+    this.onGuides([])
   }
 
-  onMouseUp() { this.active = [] }
+  onMouseUp() {
+    this.active = []
+    this.onGuides([])
+  }
 
   get isDragging() { return this.active.length > 0 }
+
+  /** Collect rects for all elements except those being dragged. */
+  private getAllRects(excludeIds: Set<string>): SnapRect[] {
+    const s = this.store.state
+    const rects: SnapRect[] = []
+    const push = (id: string, pos: { x: number; y: number }, size: { w: number; h: number }) => {
+      if (!excludeIds.has(id)) rects.push({ x: pos.x, y: pos.y, w: size.w, h: size.h })
+    }
+    for (const c of s.classes)   push(c.id, c.position, c.size)
+    for (const p of s.packages)  push(p.id, p.position, p.size)
+    for (const st of s.storages) push(st.id, st.position, st.size)
+    for (const a of s.actors)    push(a.id, a.position, a.size)
+    for (const q of s.queues)    push(q.id, q.position, q.size)
+    return rects
+  }
 }
