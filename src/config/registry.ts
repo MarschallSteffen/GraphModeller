@@ -3,6 +3,8 @@ import { umlClassConfig, umlPackageConfig } from './elements/umlClass.ts'
 import { storageConfig } from './elements/storage.ts'
 import { agentConfig, humanAgentConfig } from './elements/actor.ts'
 import { queueConfig } from './elements/queue.ts'
+import { useCaseConfig, ucSystemConfig, ucActorConfig } from './elements/useCase.ts'
+import { stateConfig, startStateConfig, endStateConfig } from './elements/stateDiagram.ts'
 
 const registry = new Map<string, ElementConfig>()
 
@@ -16,6 +18,12 @@ register(storageConfig)
 register(agentConfig)
 register(humanAgentConfig)
 register(queueConfig)
+register(useCaseConfig)
+register(ucSystemConfig)
+register(ucActorConfig)
+register(stateConfig)
+register(startStateConfig)
+register(endStateConfig)
 
 export function getElementConfig(type: string): ElementConfig | undefined {
   return registry.get(type)

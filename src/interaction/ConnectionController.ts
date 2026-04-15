@@ -89,7 +89,12 @@ export class ConnectionController {
       diagram.packages.find(p => p.id === targetElementId) ??
       diagram.storages.find(s => s.id === targetElementId) ??
       diagram.actors.find(a => a.id === targetElementId) ??
-      diagram.queues.find(q => q.id === targetElementId)
+      diagram.queues.find(q => q.id === targetElementId) ??
+      diagram.useCases.find(u => u.id === targetElementId) ??
+      diagram.ucSystems.find(u => u.id === targetElementId) ??
+      diagram.states?.find(s => s.id === targetElementId) ??
+      diagram.startStates?.find(s => s.id === targetElementId) ??
+      diagram.endStates?.find(s => s.id === targetElementId)
     if (!tgtEl) return
 
     const tgtType = targetElementType ?? (tgtEl as AnyElement & { elementType?: string }).elementType ?? 'uml-class'
@@ -100,7 +105,12 @@ export class ConnectionController {
       diagram.packages.find(p => p.id === src.elementId) ??
       diagram.storages.find(s => s.id === src.elementId) ??
       diagram.actors.find(a => a.id === src.elementId) ??
-      diagram.queues.find(q => q.id === src.elementId)
+      diagram.queues.find(q => q.id === src.elementId) ??
+      diagram.useCases.find(u => u.id === src.elementId) ??
+      diagram.ucSystems.find(u => u.id === src.elementId) ??
+      diagram.states?.find(s => s.id === src.elementId) ??
+      diagram.startStates?.find(s => s.id === src.elementId) ??
+      diagram.endStates?.find(s => s.id === src.elementId)
 
     // If dropped on element body (no specific port), pick best port pair
     let resolvedSrcPort = src.port as string

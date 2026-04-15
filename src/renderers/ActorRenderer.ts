@@ -48,13 +48,13 @@ export class ActorRenderer {
   update(actor: Actor) {
     const { position: { x, y }, size: { w, h }, elementType, multiInstance } = actor
     const minW = Math.max(80, estimateTextWidth(actor.name) + 16)
-    const minH = elementType === 'human-agent' ? 80 : 40
+    const minH = (elementType === 'human-agent' || elementType === 'uc-actor') ? 80 : 40
     this.computedW = Math.max(w, minW)
     this.computedH = Math.max(h, minH)
 
     this.el.setAttribute('transform', `translate(${x},${y})`)
 
-    // Shadow: actor shape has no rx for human-agent, rx=4 for agent
+    // Shadow: actor shape has no rx for human-agent/uc-actor, rx=4 for agent
     const shadowRx = elementType === 'agent' ? 4 : 0
     renderShadow(this.shadowGroup, multiInstance, 'actor-shadow-shape', this.computedW, this.computedH, shadowRx)
 
@@ -62,7 +62,7 @@ export class ActorRenderer {
     const shape = this.buildShape(elementType, this.computedW, this.computedH)
     this.mainGroup.appendChild(shape)
 
-    if (elementType === 'human-agent') {
+    if (elementType === 'human-agent' || elementType === 'uc-actor') {
       const figure = this.buildStickFigure(this.computedW, this.computedH)
       this.mainGroup.appendChild(figure)
       this.nameText.setAttribute('x', String(this.computedW / 2))
@@ -84,6 +84,11 @@ export class ActorRenderer {
     if (elementType === 'agent') {
       rect.setAttribute('rx', '4')
       rect.setAttribute('ry', '4')
+    }
+    // uc-actor uses only the stick figure — no visible background rect
+    if (elementType === 'uc-actor') {
+      rect.style.fill = 'transparent'
+      rect.style.stroke = 'none'
     }
     return rect
   }
@@ -138,7 +143,7 @@ export class ActorRenderer {
 
   getContentMinSize() {
     const minW = Math.max(80, estimateTextWidth(this.actor.name) + 16)
-    const minH = this.actor.elementType === 'human-agent' ? 80 : 40
+    const minH = (this.actor.elementType === 'human-agent' || this.actor.elementType === 'uc-actor') ? 80 : 40
     return { w: minW, h: minH }
   }
 

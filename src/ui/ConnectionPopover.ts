@@ -5,16 +5,21 @@ const MULTIPLICITIES: Multiplicity[] = ['', '1', '0..1', '*', '1..*', '0..*']
 
 // All connection type icons in display order
 const ALL_TYPE_ICONS: Array<{ type: ConnectionType; icon: string; label: string }> = [
-  { type: 'plain',        icon: '—',  label: 'Plain line'                         },
-  { type: 'association',  icon: '→',  label: 'Association'                        },
-  { type: 'dependency',   icon: '⤳',  label: 'Dependency'                        },
-  { type: 'inheritance',  icon: '▷→', label: 'Inheritance'                        },
-  { type: 'realization',  icon: '▷⤳', label: 'Realization'                        },
-  { type: 'composition',  icon: '◆→', label: 'Composition'                        },
-  { type: 'aggregation',  icon: '◇→', label: 'Aggregation'                        },
-  { type: 'request',      icon: 'R',  label: 'Request'                            },
-  { type: 'write',        icon: '→',  label: 'Single direction (flip to reverse)' },
-  { type: 'read-write',   icon: '⇄',  label: 'Bidirectional'                      },
+  { type: 'plain',             icon: '—',  label: 'Plain line'                         },
+  { type: 'association',       icon: '→',  label: 'Association'                        },
+  { type: 'dependency',        icon: '⤳',  label: 'Dependency'                        },
+  { type: 'inheritance',       icon: '▷→', label: 'Inheritance'                        },
+  { type: 'realization',       icon: '▷⤳', label: 'Realization'                        },
+  { type: 'composition',       icon: '◆→', label: 'Composition'                        },
+  { type: 'aggregation',       icon: '◇→', label: 'Aggregation'                        },
+  { type: 'request',           icon: 'R',  label: 'Request'                            },
+  { type: 'write',             icon: '→',  label: 'Single direction (flip to reverse)' },
+  { type: 'read-write',        icon: '⇄',  label: 'Bidirectional'                      },
+  { type: 'uc-association',    icon: '—',  label: 'Association'                        },
+  { type: 'uc-extend',         icon: '⤳«ext»', label: 'Extend'                        },
+  { type: 'uc-include',        icon: '⤳«inc»', label: 'Include'                       },
+  { type: 'uc-specialization', icon: '▷',  label: 'Specialization'                    },
+  { type: 'transition',        icon: '→',  label: 'Transition'                         },
 ]
 
 /**
@@ -27,6 +32,8 @@ export function allowedConnectionTypes(
   const ALL_TYPES: ConnectionType[] = [
     'plain', 'association', 'composition', 'aggregation', 'inheritance', 'realization', 'dependency',
     'request', 'write', 'read-write',
+    'uc-association', 'uc-extend', 'uc-include', 'uc-specialization',
+    'transition',
   ]
   const srcAllowed = srcConfig?.connectionRule?.asSource ?? null
   const tgtAllowed = tgtConfig?.connectionRule?.asTarget ?? null

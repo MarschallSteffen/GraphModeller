@@ -315,7 +315,9 @@ body {
 .uml-package:hover .port,
 .uml-storage:hover .port,
 .uml-actor:hover .port,
-.uml-queue:hover .port { opacity: 1; }
+.uml-queue:hover .port,
+.uml-usecase:hover .port,
+.uml-ucsystem:hover .port { opacity: 1; }
 
 /* ── Connection arrows ─────────────────────────────────────────────────── */
 .connection { cursor: pointer; }
@@ -508,6 +510,46 @@ body {
   stroke: var(--ctp-sapphire);
   stroke-width: 1.5;
   opacity: 0.4;
+}
+
+/* ── Use Case elements ─────────────────────────────────────────────────────── */
+.uml-usecase:hover .port,
+.uml-ucsystem:hover .port { opacity: 1; }
+
+.uml-usecase { cursor: move; }
+.uml-usecase .usecase-bg {
+  fill: var(--ctp-base);
+  stroke: var(--ctp-overlay2);
+  stroke-width: 1.5;
+}
+.uml-usecase .usecase-name {
+  fill: var(--ctp-text);
+  font-size: 13px;
+  dominant-baseline: central;
+  text-anchor: middle;
+  pointer-events: none;
+}
+.uml-usecase.selected .usecase-bg {
+  stroke: var(--ctp-lavender);
+  stroke-width: 2;
+}
+
+.uml-ucsystem { cursor: move; }
+.uml-ucsystem .ucsystem-bg {
+  fill: none;
+  stroke: var(--ctp-overlay2);
+  stroke-width: 2;
+}
+.uml-ucsystem .ucsystem-name {
+  fill: var(--ctp-overlay2);
+  font-size: 12px;
+  dominant-baseline: auto;
+  text-anchor: middle;
+  pointer-events: none;
+}
+.uml-ucsystem.selected .ucsystem-bg {
+  stroke: var(--ctp-lavender);
+  stroke-width: 2.5;
 }
 
 /* ── Request / channel connection symbol ───────────────────────────────── */
@@ -717,4 +759,54 @@ body {
   width: auto;
   accent-color: var(--ctp-lavender);
   cursor: pointer;
+}
+
+/* ── State Diagram ───────────────────────────────────────────────────── */
+
+/* Port visibility for state elements */
+.sd-state:hover .port,
+.sd-start-state:hover .port,
+.sd-end-state:hover .port { opacity: 1; }
+
+/* State (pill-shaped rounded rect) */
+.sd-state { cursor: move; }
+.sd-state-bg {
+  fill: var(--ctp-surface0);
+  stroke: var(--ctp-overlay1);
+  stroke-width: 1.5;
+}
+.sd-state-name {
+  fill: var(--ctp-text);
+  font-size: 13px;
+  pointer-events: none;
+}
+.sd-state.selected .sd-state-bg {
+  stroke: var(--ctp-lavender);
+  stroke-width: 2;
+}
+
+/* Start state (filled circle) */
+.sd-start-state { cursor: move; }
+.sd-start-circle {
+  fill: var(--ctp-text);
+}
+.sd-start-state.selected .sd-start-circle {
+  fill: var(--ctp-lavender);
+}
+
+/* End state (bullseye) */
+.sd-end-state { cursor: move; }
+.sd-end-outer {
+  fill: none;
+  stroke: var(--ctp-text);
+  stroke-width: 2;
+}
+.sd-end-inner {
+  fill: var(--ctp-text);
+}
+.sd-end-state.selected .sd-end-outer {
+  stroke: var(--ctp-lavender);
+}
+.sd-end-state.selected .sd-end-inner {
+  fill: var(--ctp-lavender);
 }

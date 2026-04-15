@@ -1,7 +1,7 @@
 import type { ThemeFlavour } from '../themes/catppuccin.ts'
 import { applyTheme } from '../themes/catppuccin.ts'
 
-export type Tool = 'select' | 'pan' | 'class' | 'package' | 'storage' | 'agent' | 'human-agent' | 'queue'
+export type Tool = 'select' | 'pan' | 'class' | 'package' | 'storage' | 'agent' | 'human-agent' | 'queue' | 'use-case' | 'uc-actor' | 'uc-system' | 'state' | 'start-state' | 'end-state'
 
 type ToolChangeListener = (tool: Tool) => void
 
@@ -22,6 +22,12 @@ const ICONS: Record<Tool, string> = {
   agent:         `<svg viewBox="0 0 24 24"><rect fill="none" stroke="currentColor" stroke-width="2" x="3" y="6" width="18" height="12" rx="2"/></svg>`,
   'human-agent': `<svg viewBox="0 0 24 24"><rect fill="none" stroke="currentColor" stroke-width="1.8" x="2" y="2" width="20" height="20" rx="2"/><circle fill="none" stroke="currentColor" stroke-width="1.5" cx="12" cy="8" r="3"/><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M12 11 L12 17 M8 13.5 L16 13.5 M9 21 L12 17 L15 21"/></svg>`,
   queue:         `<svg viewBox="0 0 24 24"><rect fill="none" stroke="currentColor" stroke-width="2" x="2" y="7" width="20" height="10" rx="5"/><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M10 12 L14 12 M14 12 L12 10 M14 12 L12 14"/></svg>`,
+  'use-case':    `<svg viewBox="0 0 24 24"><ellipse fill="none" stroke="currentColor" stroke-width="2" cx="12" cy="12" rx="9" ry="6"/></svg>`,
+  'uc-actor':    `<svg viewBox="0 0 24 24"><circle fill="none" stroke="currentColor" stroke-width="1.8" cx="12" cy="5" r="3"/><line stroke="currentColor" stroke-width="1.8" stroke-linecap="round" x1="12" y1="8" x2="12" y2="16"/><line stroke="currentColor" stroke-width="1.8" stroke-linecap="round" x1="7" y1="11" x2="17" y2="11"/><line stroke="currentColor" stroke-width="1.8" stroke-linecap="round" x1="12" y1="16" x2="9" y2="21"/><line stroke="currentColor" stroke-width="1.8" stroke-linecap="round" x1="12" y1="16" x2="15" y2="21"/></svg>`,
+  'uc-system':   `<svg viewBox="0 0 24 24"><rect fill="none" stroke="currentColor" stroke-width="2" x="3" y="3" width="18" height="18"/><line stroke="currentColor" stroke-width="1.5" x1="3" y1="8" x2="21" y2="8"/></svg>`,
+  'state':       `<svg viewBox="0 0 24 24"><rect fill="none" stroke="currentColor" stroke-width="2" x="3" y="8" width="18" height="8" rx="4"/></svg>`,
+  'start-state': `<svg viewBox="0 0 24 24"><circle fill="currentColor" cx="12" cy="12" r="6"/></svg>`,
+  'end-state':   `<svg viewBox="0 0 24 24"><circle fill="none" stroke="currentColor" stroke-width="2" cx="12" cy="12" r="8"/><circle fill="currentColor" cx="12" cy="12" r="5"/></svg>`,
 }
 
 const TOOL_LABELS: Record<Tool, string> = {
@@ -33,6 +39,12 @@ const TOOL_LABELS: Record<Tool, string> = {
   agent:         'Add Agent (A)',
   'human-agent': 'Add Human Agent (U)',
   queue:         'Add Queue (Q)',
+  'use-case':    'Add Use Case (E)',
+  'uc-actor':    'Add Actor',
+  'uc-system':   'Add System Boundary',
+  'state':       'Add State (T)',
+  'start-state': 'Add Start State',
+  'end-state':   'Add End State',
 }
 
 interface ToolGroup {
@@ -59,6 +71,18 @@ const TOOL_GROUPS: ToolGroup[] = [
     label: 'TAM Block Diagram',
     shortLabel: 'TAM',
     tools: ['agent', 'human-agent', 'storage', 'queue'],
+    defaultOpen: false,
+  },
+  {
+    label: 'TAM Use Case Diagram',
+    shortLabel: 'UC',
+    tools: ['use-case', 'uc-actor', 'uc-system'],
+    defaultOpen: false,
+  },
+  {
+    label: 'TAM State Diagram',
+    shortLabel: 'SD',
+    tools: ['state', 'start-state', 'end-state'],
     defaultOpen: false,
   },
 ]
@@ -177,6 +201,8 @@ export class Toolbar {
       if (e.key === 'a' || e.key === 'A') this.setTool('agent')
       if (e.key === 'u' || e.key === 'U') this.setTool('human-agent')
       if (e.key === 'q' || e.key === 'Q') this.setTool('queue')
+      if (e.key === 'e' || e.key === 'E') this.setTool('use-case')
+      if (e.key === 't' || e.key === 'T') this.setTool('state')
     })
   }
 }

@@ -10,25 +10,31 @@ export function injectMarkerDefs(svg: SVGSVGElement) {
 
   // Each marker is drawn pointing right (→). SVG flips it automatically via orient="auto".
   // refX=9 so the arrowhead tip sits exactly on the line endpoint.
-  const markers: Array<{ id: string; path: string; fill: string }> = [
-    { id: 'arrow-association',  path: 'M0,0 L9,4.5 L0,9',           fill: 'none' },
-    { id: 'arrow-dependency',   path: 'M0,0 L9,4.5 L0,9',           fill: 'none' },
-    { id: 'arrow-inheritance',  path: 'M0,0 L9,4.5 L0,9 Z',         fill: 'var(--ctp-base)' },
-    { id: 'arrow-realization',  path: 'M0,0 L9,4.5 L0,9 Z',         fill: 'var(--ctp-base)' },
-    { id: 'arrow-composition',  path: 'M0,4.5 L4.5,0 L9,4.5 L4.5,9 Z', fill: 'var(--ctp-overlay1)' },
-    { id: 'arrow-aggregation',  path: 'M0,4.5 L4.5,0 L9,4.5 L4.5,9 Z', fill: 'var(--ctp-base)' },
+  const markers: Array<{ id: string; path: string; fill: string; color?: string; refX?: string }> = [
+    { id: 'arrow-association',      path: 'M0,0 L9,4.5 L0,9',               fill: 'none' },
+    { id: 'arrow-dependency',       path: 'M0,0 L9,4.5 L0,9',               fill: 'none' },
+    { id: 'arrow-inheritance',      path: 'M0,0 L9,4.5 L0,9 Z',             fill: 'var(--ctp-base)' },
+    { id: 'arrow-realization',      path: 'M0,0 L9,4.5 L0,9 Z',             fill: 'var(--ctp-base)' },
+    { id: 'arrow-composition',      path: 'M0,4.5 L4.5,0 L9,4.5 L4.5,9 Z', fill: 'var(--ctp-overlay1)' },
+    { id: 'arrow-aggregation',      path: 'M0,4.5 L4.5,0 L9,4.5 L4.5,9 Z', fill: 'var(--ctp-base)' },
     // Storage data-flow — teal arrowhead
-    { id: 'arrow-storage',       path: 'M0,0 L9,4.5 L0,9', fill: 'none' },
-    // Same marker but refX=0 for use as marker-start (tip at path start)
-    { id: 'arrow-storage-start', path: 'M0,0 L9,4.5 L0,9', fill: 'none' },
+    { id: 'arrow-storage',          path: 'M0,0 L9,4.5 L0,9',               fill: 'none', color: 'var(--ctp-teal)' },
+    { id: 'arrow-storage-start',    path: 'M0,0 L9,4.5 L0,9',               fill: 'none', color: 'var(--ctp-teal)', refX: '0' },
+    // Use Case diagram types — open arrowhead in overlay2 color
+    { id: 'arrow-uc-extend',        path: 'M0,0 L9,4.5 L0,9',               fill: 'none', color: 'var(--ctp-overlay2)' },
+    { id: 'arrow-uc-include',       path: 'M0,0 L9,4.5 L0,9',               fill: 'none', color: 'var(--ctp-overlay2)' },
+    // Specialization = hollow triangle (same shape as inheritance)
+    { id: 'arrow-uc-specialization',path: 'M0,0 L9,4.5 L0,9 Z',             fill: 'var(--ctp-base)', color: 'var(--ctp-overlay2)' },
+    // State diagram transition — filled arrowhead
+    { id: 'arrow-transition',       path: 'M0,0 L9,4.5 L0,9 Z',             fill: 'var(--ctp-text)', color: 'var(--ctp-text)' },
   ]
 
-  markers.forEach(({ id, path, fill }) => {
+  markers.forEach(({ id, path, fill, color, refX }) => {
     const marker = svgEl('marker')
     marker.setAttribute('id', id)
     marker.setAttribute('markerWidth', '10')
     marker.setAttribute('markerHeight', '10')
-    marker.setAttribute('refX', id === 'arrow-storage-start' ? '0' : '9')
+    marker.setAttribute('refX', refX ?? '9')
     marker.setAttribute('refY', '4.5')
     marker.setAttribute('orient', 'auto')
     marker.setAttribute('viewBox', '0 0 9 9')
@@ -36,15 +42,7 @@ export function injectMarkerDefs(svg: SVGSVGElement) {
     const p = svgEl('path')
     p.setAttribute('d', path)
     p.setAttribute('fill', fill)
-    const isStorage = id.startsWith('arrow-storage')
-    const isRequest = id === 'arrow-request'
-    if (isStorage) {
-      p.setAttribute('stroke', 'var(--ctp-teal)')
-    } else if (isRequest) {
-      p.setAttribute('stroke', 'var(--ctp-mauve)')
-    } else {
-      p.setAttribute('stroke', 'var(--ctp-overlay1)')
-    }
+    p.setAttribute('stroke', color ?? 'var(--ctp-overlay1)')
     p.setAttribute('stroke-width', '1.2')
     marker.appendChild(p)
     defs.appendChild(marker)
@@ -53,7 +51,7 @@ export function injectMarkerDefs(svg: SVGSVGElement) {
   svg.insertBefore(defs, svg.firstChild)
 }
 
-const DASH_TYPES: ConnectionType[] = ['dependency', 'realization']
+const DASH_TYPES: ConnectionType[] = ['dependency', 'realization', 'uc-extend', 'uc-include']
 
 export class ConnectionRenderer {
   readonly el: SVGGElement
@@ -203,6 +201,46 @@ export class ConnectionRenderer {
       this.pathB.style.display = 'none'
       this.hitPath.setAttribute('d', d)
 
+    } else if (conn.type === 'uc-association') {
+      // Plain line, no arrowhead — UC association between actor and use case
+      const d = orthogonalPath(x1, y1, srcPort, x2, y2, tgtPort, offset, srcRect, tgtRect)
+      this.path.setAttribute('d', d)
+      this.path.removeAttribute('marker-end')
+      this.path.removeAttribute('marker-start')
+      this.path.style.stroke = 'var(--ctp-overlay2)'
+      this.pathB.style.display = 'none'
+      this.hitPath.setAttribute('d', d)
+
+    } else if (conn.type === 'uc-extend' || conn.type === 'uc-include') {
+      // Dashed line with open arrowhead; stereotype label injected via the label field
+      const d = orthogonalPath(x1, y1, srcPort, x2, y2, tgtPort, offset, srcRect, tgtRect)
+      this.path.setAttribute('d', d)
+      this.path.setAttribute('marker-end', `url(#arrow-${conn.type})`)
+      this.path.removeAttribute('marker-start')
+      this.path.style.stroke = 'var(--ctp-overlay2)'
+      this.pathB.style.display = 'none'
+      this.hitPath.setAttribute('d', d)
+
+    } else if (conn.type === 'uc-specialization') {
+      // Solid line with hollow triangle — actor/use-case generalisation
+      const d = orthogonalPath(x1, y1, srcPort, x2, y2, tgtPort, offset, srcRect, tgtRect)
+      this.path.setAttribute('d', d)
+      this.path.setAttribute('marker-end', 'url(#arrow-uc-specialization)')
+      this.path.removeAttribute('marker-start')
+      this.path.style.stroke = 'var(--ctp-overlay2)'
+      this.pathB.style.display = 'none'
+      this.hitPath.setAttribute('d', d)
+
+    } else if (conn.type === 'transition') {
+      // State diagram transition — solid line with filled arrowhead
+      const d = orthogonalPath(x1, y1, srcPort, x2, y2, tgtPort, offset, srcRect, tgtRect)
+      this.path.setAttribute('d', d)
+      this.path.setAttribute('marker-end', 'url(#arrow-transition)')
+      this.path.removeAttribute('marker-start')
+      this.path.style.stroke = ''
+      this.pathB.style.display = 'none'
+      this.hitPath.setAttribute('d', d)
+
     } else {
       // Standard UML connection types
       const d = orthogonalPath(x1, y1, srcPort, x2, y2, tgtPort, offset, srcRect, tgtRect)
@@ -214,13 +252,18 @@ export class ConnectionRenderer {
       this.hitPath.setAttribute('d', d)
     }
 
-    // Label at midpoint
+    // Label at true arc-length midpoint — uc-extend/uc-include show stereotype if no custom label
+    const stereotype = conn.type === 'uc-extend' ? '«extend»' : conn.type === 'uc-include' ? '«include»' : null
+    const labelText = conn.label || stereotype || ''
+    this.label.textContent = labelText
+    if (labelText) {
+      const mid = pathMidpoint(x1, y1, srcPort, x2, y2, tgtPort, srcRect, tgtRect)
+      this.label.setAttribute('x', String(mid.x))
+      this.label.setAttribute('y', String(mid.y - 8))
+    }
+
     const mx = (x1 + x2) / 2
     const my = (y1 + y2) / 2
-    this.label.textContent = conn.label ?? ''
-    this.label.setAttribute('x', String(mx))
-    this.label.setAttribute('y', String(my - 8))
-
     this.srcMult.textContent = conn.sourceMultiplicity ?? ''
     this.srcMult.setAttribute('x', String(x1 + (mx - x1) * 0.2))
     this.srcMult.setAttribute('y', String(y1 + (my - y1) * 0.2 - 6))

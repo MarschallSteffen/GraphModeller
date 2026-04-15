@@ -468,17 +468,22 @@ function classLines(cls: UmlClass, indent: number): string[] {
 
 function connArrow(type: ConnectionType): string {
   const map: Record<ConnectionType, string> = {
-    plain:        '--',
-    association:  '-->',
-    composition:  '*-->',
-    aggregation:  'o-->',
-    inheritance:  '<|--',
-    realization:  '<|..',
-    dependency:   '..>',
-    read:         '<--',
-    write:        '--->',
-    'read-write': '<--->',
-    request:      '~~>',
+    plain:             '--',
+    association:       '-->',
+    composition:       '*-->',
+    aggregation:       'o-->',
+    inheritance:       '<|--',
+    realization:       '<|..',
+    dependency:        '..>',
+    read:              '<--',
+    write:             '--->',
+    'read-write':      '<--->',
+    request:           '~~>',
+    'uc-association':  '--',
+    'uc-extend':       '..>',
+    'uc-include':      '..>',
+    'uc-specialization': '<|--',
+    'transition':        '-->',
   }
   return map[type] ?? '-->'
 }

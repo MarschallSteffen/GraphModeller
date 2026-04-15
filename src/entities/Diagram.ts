@@ -4,6 +4,11 @@ import type { Connection } from './Connection.ts'
 import type { Storage } from './Storage.ts'
 import type { Actor } from './Actor.ts'
 import type { Queue } from './Queue.ts'
+import type { UseCase } from './UseCase.ts'
+import type { UCSystem } from './UCSystem.ts'
+import type { State } from './State.ts'
+import type { StartState } from './StartState.ts'
+import type { EndState } from './EndState.ts'
 
 export interface Viewport {
   x: number
@@ -19,6 +24,11 @@ export interface Diagram {
   storages: Storage[]
   actors: Actor[]
   queues: Queue[]
+  useCases: UseCase[]
+  ucSystems: UCSystem[]
+  states: State[]
+  startStates: StartState[]
+  endStates: EndState[]
   connections: Connection[]
   viewport: Viewport
 }
@@ -32,6 +42,11 @@ export function createDiagram(name = 'Untitled'): Diagram {
     storages: [],
     actors: [],
     queues: [],
+    useCases: [],
+    ucSystems: [],
+    states: [],
+    startStates: [],
+    endStates: [],
     connections: [],
     viewport: { x: 0, y: 0, zoom: 1 },
   }

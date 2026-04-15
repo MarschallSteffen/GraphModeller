@@ -4,5 +4,5 @@
  *
  * Centralised here so adding a new element kind requires only one edit.
  */
-export type ElementKind = 'class' | 'package' | 'storage' | 'actor' | 'queue'
+export type ElementKind = 'class' | 'package' | 'storage' | 'actor' | 'queue' | 'use-case' | 'uc-system' | 'state' | 'start-state' | 'end-state'
 export type SelectableKind = ElementKind | 'connection'

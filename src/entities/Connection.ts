@@ -13,6 +13,13 @@ export type ConnectionType =
   | 'read-write'
   // Actor/channel request
   | 'request'
+  // Use Case diagram types
+  | 'uc-association'
+  | 'uc-extend'
+  | 'uc-include'
+  | 'uc-specialization'
+  // State diagram transition
+  | 'transition'
 
 export type PortSide = string  // 'n' | 'e' | 's' | 'w' or custom port ids
 

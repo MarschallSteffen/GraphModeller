@@ -6,6 +6,11 @@ import { PackageRenderer } from './renderers/PackageRenderer.ts'
 import { StorageRenderer } from './renderers/StorageRenderer.ts'
 import { ActorRenderer } from './renderers/ActorRenderer.ts'
 import { QueueRenderer } from './renderers/QueueRenderer.ts'
+import { UseCaseRenderer } from './renderers/UseCaseRenderer.ts'
+import { UCSystemRenderer } from './renderers/UCSystemRenderer.ts'
+import { StateRenderer } from './renderers/StateRenderer.ts'
+import { StartStateRenderer } from './renderers/StartStateRenderer.ts'
+import { EndStateRenderer } from './renderers/EndStateRenderer.ts'
 import { ConnectionRenderer, injectMarkerDefs } from './renderers/ConnectionRenderer.ts'
 import { DragController } from './interaction/DragController.ts'
 import { ResizeController } from './interaction/ResizeController.ts'
@@ -21,12 +26,22 @@ import { createUmlPackage } from './entities/Package.ts'
 import { createStorage } from './entities/Storage.ts'
 import { createActor } from './entities/Actor.ts'
 import { createQueue } from './entities/Queue.ts'
+import { createUseCase } from './entities/UseCase.ts'
+import { createUCSystem } from './entities/UCSystem.ts'
+import { createState } from './entities/State.ts'
+import { createStartState } from './entities/StartState.ts'
+import { createEndState } from './entities/EndState.ts'
 import { createDiagram } from './entities/Diagram.ts'
 import type { UmlClass } from './entities/UmlClass.ts'
 import type { UmlPackage } from './entities/Package.ts'
 import type { Storage } from './entities/Storage.ts'
 import type { Actor } from './entities/Actor.ts'
 import type { Queue } from './entities/Queue.ts'
+import type { UseCase } from './entities/UseCase.ts'
+import type { UCSystem } from './entities/UCSystem.ts'
+import type { State } from './entities/State.ts'
+import type { StartState } from './entities/StartState.ts'
+import type { EndState } from './entities/EndState.ts'
 import type { Connection } from './entities/Connection.ts'
 import { absolutePortPosition } from './renderers/ports.ts'
 import { getElementConfig } from './config/registry.ts'
@@ -62,7 +77,9 @@ const fileMenuCallbacks = {
   onNew: () => {
     if (store.state.classes.length || store.state.packages.length ||
         store.state.storages.length || store.state.actors.length ||
-        store.state.queues.length || store.state.connections.length) {
+        store.state.queues.length || store.state.useCases.length || store.state.ucSystems.length ||
+        store.state.states?.length || store.state.startStates?.length || store.state.endStates?.length ||
+        store.state.connections.length) {
       if (!confirm('Create a new diagram? Unsaved changes will be lost.')) return
     }
     closeActiveFile()
@@ -109,13 +126,16 @@ const fileMenu = new FileMenu(document.getElementById('titlebar')!, fileMenuCall
 // Initialise title from loaded diagram
 fileMenu.setTitle(store.state.name ?? 'Untitled')
 
-const pkgLayer     = document.createElementNS('http://www.w3.org/2000/svg', 'g')
-const storageLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g')
-const actorLayer   = document.createElementNS('http://www.w3.org/2000/svg', 'g')
-const queueLayer   = document.createElementNS('http://www.w3.org/2000/svg', 'g')
-const connLayer    = document.createElementNS('http://www.w3.org/2000/svg', 'g')
-const clsLayer     = document.createElementNS('http://www.w3.org/2000/svg', 'g')
-viewGroup.append(pkgLayer, storageLayer, actorLayer, queueLayer, connLayer, clsLayer)
+const pkgLayer      = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+const storageLayer  = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+const actorLayer    = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+const queueLayer    = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+const ucSystemLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+const ucLayer       = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+const stateLayer    = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+const connLayer     = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+const clsLayer      = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+viewGroup.append(pkgLayer, storageLayer, actorLayer, queueLayer, ucSystemLayer, ucLayer, stateLayer, connLayer, clsLayer)
 
 // Rubber-band selection rect — lives inside viewGroup so coords are in diagram space
 const rubberBandRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
@@ -150,12 +170,17 @@ function updateSnapGuides(guides: import('./interaction/SnapEngine.ts').GuideLin
 
 // ─── Renderer maps ────────────────────────────────────────────────────────────
 
-const classRenderers   = new Map<string, ClassRenderer>()
-const pkgRenderers     = new Map<string, PackageRenderer>()
-const storageRenderers = new Map<string, StorageRenderer>()
-const actorRenderers   = new Map<string, ActorRenderer>()
-const queueRenderers   = new Map<string, QueueRenderer>()
-const connRenderers    = new Map<string, ConnectionRenderer>()
+const classRenderers    = new Map<string, ClassRenderer>()
+const pkgRenderers      = new Map<string, PackageRenderer>()
+const storageRenderers  = new Map<string, StorageRenderer>()
+const actorRenderers    = new Map<string, ActorRenderer>()
+const queueRenderers    = new Map<string, QueueRenderer>()
+const ucRenderers       = new Map<string, UseCaseRenderer>()
+const ucSystemRenderers = new Map<string, UCSystemRenderer>()
+const stateRenderers      = new Map<string, StateRenderer>()
+const startStateRenderers = new Map<string, StartStateRenderer>()
+const endStateRenderers   = new Map<string, EndStateRenderer>()
+const connRenderers     = new Map<string, ConnectionRenderer>()
 
 // ─── SVG helper ───────────────────────────────────────────────────────────────
 
@@ -184,10 +209,15 @@ function getContainedElements(pkgId: string): Array<{ kind: ElementKind; id: str
     const cy = el.position.y + el.size.h / 2
     return cx > x && cx < x + w && cy > y && cy < y + h
   }
-  d.classes.forEach(e  => { if (inside(e)) result.push({ kind: 'class',   id: e.id }) })
-  d.storages.forEach(e => { if (inside(e)) result.push({ kind: 'storage', id: e.id }) })
-  d.actors.forEach(e   => { if (inside(e)) result.push({ kind: 'actor',   id: e.id }) })
-  d.queues.forEach(e   => { if (inside(e)) result.push({ kind: 'queue',   id: e.id }) })
+  d.classes.forEach(e  => { if (inside(e)) result.push({ kind: 'class',     id: e.id }) })
+  d.storages.forEach(e => { if (inside(e)) result.push({ kind: 'storage',   id: e.id }) })
+  d.actors.forEach(e   => { if (inside(e)) result.push({ kind: 'actor',     id: e.id }) })
+  d.queues.forEach(e   => { if (inside(e)) result.push({ kind: 'queue',     id: e.id }) })
+  d.useCases.forEach(e => { if (inside(e)) result.push({ kind: 'use-case',  id: e.id }) })
+  d.ucSystems.forEach(e=> { if (inside(e)) result.push({ kind: 'uc-system', id: e.id }) })
+  d.states?.forEach(e    => { if (inside(e)) result.push({ kind: 'state',       id: e.id }) })
+  d.startStates?.forEach(e => { if (inside(e)) result.push({ kind: 'start-state', id: e.id }) })
+  d.endStates?.forEach(e   => { if (inside(e)) result.push({ kind: 'end-state',   id: e.id }) })
   return result
 }
 
@@ -256,6 +286,56 @@ function addQueueRenderer(queue: Queue) {
   queueLayer.appendChild(r.el)
   queueRenderers.set(queue.id, r)
   wireQueueInteraction(r, queue)
+}
+
+function addUseCaseRenderer(uc: UseCase) {
+  const r = new UseCaseRenderer(uc, store, (el, port, e) => {
+    connect.startConnection({ ...el, elementType: 'use-case' }, port, e)
+    e.preventDefault()
+  })
+  ucLayer.appendChild(r.el)
+  ucRenderers.set(uc.id, r)
+  wireUseCaseInteraction(r, uc)
+}
+
+function addUCSystemRenderer(sys: UCSystem) {
+  const r = new UCSystemRenderer(sys, store, (el, port, e) => {
+    connect.startConnection({ ...el, elementType: 'uc-system' }, port, e)
+    e.preventDefault()
+  })
+  ucSystemLayer.appendChild(r.el)
+  ucSystemRenderers.set(sys.id, r)
+  wireUCSystemInteraction(r, sys)
+}
+
+function addStateRenderer(state: State) {
+  const r = new StateRenderer(state, store, (el, port, e) => {
+    connect.startConnection({ ...el, elementType: 'state' }, port, e)
+    e.preventDefault()
+  })
+  stateLayer.appendChild(r.el)
+  stateRenderers.set(state.id, r)
+  wireStateInteraction(r, state)
+}
+
+function addStartStateRenderer(state: StartState) {
+  const r = new StartStateRenderer(state, store, (el, port, e) => {
+    connect.startConnection({ ...el, elementType: 'start-state' }, port, e)
+    e.preventDefault()
+  })
+  stateLayer.appendChild(r.el)
+  startStateRenderers.set(state.id, r)
+  wireStartStateInteraction(r, state)
+}
+
+function addEndStateRenderer(state: EndState) {
+  const r = new EndStateRenderer(state, store, (el, port, e) => {
+    connect.startConnection({ ...el, elementType: 'end-state' }, port, e)
+    e.preventDefault()
+  })
+  stateLayer.appendChild(r.el)
+  endStateRenderers.set(state.id, r)
+  wireEndStateInteraction(r, state)
 }
 
 // Active connection popover dismiss — call to close any open connection popover
@@ -338,6 +418,16 @@ function findElement(
   if (ac) return { el: ac as AnyElement, type: (ac as Actor).elementType }
   const q = (d as typeof store.state).queues.find((q: { id: string }) => q.id === id)
   if (q) return { el: q as AnyElement, type: 'queue' }
+  const uc = (d as typeof store.state).useCases.find((u: { id: string }) => u.id === id)
+  if (uc) return { el: uc as AnyElement, type: 'use-case' }
+  const ucs = (d as typeof store.state).ucSystems.find((u: { id: string }) => u.id === id)
+  if (ucs) return { el: ucs as AnyElement, type: 'uc-system' }
+  const stEl = (d as typeof store.state).states?.find((s: { id: string }) => s.id === id)
+  if (stEl) return { el: stEl as AnyElement, type: 'state' }
+  const ss = (d as typeof store.state).startStates?.find((s: { id: string }) => s.id === id)
+  if (ss) return { el: ss as AnyElement, type: 'start-state' }
+  const es = (d as typeof store.state).endStates?.find((s: { id: string }) => s.id === id)
+  if (es) return { el: es as AnyElement, type: 'end-state' }
   return undefined
 }
 
@@ -348,6 +438,11 @@ function getRenderedSizeFor(id: string, found: { el: AnyElement; type: string })
     ?? storageRenderers.get(id)?.getRenderedSize()
     ?? actorRenderers.get(id)?.getRenderedSize()
     ?? queueRenderers.get(id)?.getRenderedSize()
+    ?? ucRenderers.get(id)?.getRenderedSize()
+    ?? ucSystemRenderers.get(id)?.getRenderedSize()
+    ?? stateRenderers.get(id)?.getRenderedSize()
+    ?? startStateRenderers.get(id)?.getRenderedSize()
+    ?? endStateRenderers.get(id)?.getRenderedSize()
     ?? found.el.size
 }
 
@@ -409,11 +504,16 @@ function showPropertiesForSelection() {
  */
 function getMinSize(kind: ElementKind, id: string): { w: number; h: number } {
   switch (kind) {
-    case 'class':   return classRenderers.get(id)?.getContentMinSize()   ?? { w: 180, h: 40 }
-    case 'package': return pkgRenderers.get(id)?.getContentMinSize()     ?? { w: 120, h: 60 }
-    case 'storage': return storageRenderers.get(id)?.getContentMinSize() ?? { w: 80,  h: 40 }
-    case 'actor':   return actorRenderers.get(id)?.getContentMinSize()   ?? { w: 80,  h: 40 }
-    case 'queue':   return queueRenderers.get(id)?.getContentMinSize()   ?? { w: 100, h: 48 }
+    case 'class':     return classRenderers.get(id)?.getContentMinSize()     ?? { w: 180, h: 40 }
+    case 'package':   return pkgRenderers.get(id)?.getContentMinSize()       ?? { w: 120, h: 60 }
+    case 'storage':   return storageRenderers.get(id)?.getContentMinSize()   ?? { w: 80,  h: 40 }
+    case 'actor':     return actorRenderers.get(id)?.getContentMinSize()     ?? { w: 80,  h: 40 }
+    case 'queue':     return queueRenderers.get(id)?.getContentMinSize()     ?? { w: 100, h: 48 }
+    case 'use-case':    return ucRenderers.get(id)?.getContentMinSize()        ?? { w: 140, h: 60 }
+    case 'uc-system':   return ucSystemRenderers.get(id)?.getContentMinSize()  ?? { w: 160, h: 120 }
+    case 'state':       return stateRenderers.get(id)?.getContentMinSize()     ?? { w: 80,  h: 36 }
+    case 'start-state': return startStateRenderers.get(id)?.getContentMinSize() ?? { w: 28, h: 28 }
+    case 'end-state':   return endStateRenderers.get(id)?.getContentMinSize()   ?? { w: 36, h: 36 }
   }
 }
 
@@ -562,6 +662,56 @@ function wireQueueInteraction(r: QueueRenderer, queue: Queue) {
   )
 }
 
+function wireUseCaseInteraction(r: UseCaseRenderer, uc: UseCase) {
+  wireElementInteraction(
+    r.el, 'use-case', uc.id,
+    () => { const s = r.getRenderedSize(); const c = store.state.useCases.find(u => u.id === uc.id) ?? uc; return { x: c.position.x, y: c.position.y, w: s.w, h: s.h } },
+    'usecase-name',
+    () => (store.state.useCases.find(u => u.id === uc.id) ?? uc).name,
+    val => store.updateUseCase(uc.id, { name: val }),
+  )
+}
+
+function wireUCSystemInteraction(r: UCSystemRenderer, sys: UCSystem) {
+  wireElementInteraction(
+    r.el, 'uc-system', sys.id,
+    () => { const s = r.getRenderedSize(); const c = store.state.ucSystems.find(u => u.id === sys.id) ?? sys; return { x: c.position.x, y: c.position.y, w: s.w, h: s.h } },
+    'ucsystem-name',
+    () => (store.state.ucSystems.find(u => u.id === sys.id) ?? sys).name,
+    val => store.updateUCSystem(sys.id, { name: val }),
+  )
+}
+
+function wireStateInteraction(r: StateRenderer, state: State) {
+  wireElementInteraction(
+    r.el, 'state', state.id,
+    () => { const s = r.getRenderedSize(); const c = store.state.states.find(s => s.id === state.id) ?? state; return { x: c.position.x, y: c.position.y, w: s.w, h: s.h } },
+    'sd-state-name',
+    () => (store.state.states.find(s => s.id === state.id) ?? state).name,
+    val => store.updateState(state.id, { name: val }),
+  )
+}
+
+function wireStartStateInteraction(r: StartStateRenderer, state: StartState) {
+  r.el.addEventListener('mousedown', e => {
+    if (connect.isConnecting) return
+    if (toolbar.activeTool === 'pan') return
+    e.stopPropagation()
+    selection.select({ kind: 'start-state', id: state.id }, e.shiftKey)
+    drag.startDrag({ kind: 'start-state', id: state.id }, e, selection.items)
+  })
+}
+
+function wireEndStateInteraction(r: EndStateRenderer, state: EndState) {
+  r.el.addEventListener('mousedown', e => {
+    if (connect.isConnecting) return
+    if (toolbar.activeTool === 'pan') return
+    e.stopPropagation()
+    selection.select({ kind: 'end-state', id: state.id }, e.shiftKey)
+    drag.startDrag({ kind: 'end-state', id: state.id }, e, selection.items)
+  })
+}
+
 // ─── Store → renderer sync ────────────────────────────────────────────────────
 
 store.on(ev => {
@@ -575,6 +725,16 @@ store.on(ev => {
   if (ev.type === 'actor:remove')     { actorRenderers.get(ev.payload as string)?.el.remove(); actorRenderers.delete(ev.payload as string) }
   if (ev.type === 'queue:add')        addQueueRenderer(ev.payload as Queue)
   if (ev.type === 'queue:remove')     { queueRenderers.get(ev.payload as string)?.el.remove(); queueRenderers.delete(ev.payload as string) }
+  if (ev.type === 'usecase:add')      addUseCaseRenderer(ev.payload as UseCase)
+  if (ev.type === 'usecase:remove')   { ucRenderers.get(ev.payload as string)?.el.remove(); ucRenderers.delete(ev.payload as string) }
+  if (ev.type === 'ucsystem:add')     addUCSystemRenderer(ev.payload as UCSystem)
+  if (ev.type === 'ucsystem:remove')  { ucSystemRenderers.get(ev.payload as string)?.el.remove(); ucSystemRenderers.delete(ev.payload as string) }
+  if (ev.type === 'state:add')        addStateRenderer(ev.payload as State)
+  if (ev.type === 'state:remove')     { stateRenderers.get(ev.payload as string)?.el.remove(); stateRenderers.delete(ev.payload as string) }
+  if (ev.type === 'startstate:add')   addStartStateRenderer(ev.payload as StartState)
+  if (ev.type === 'startstate:remove') { startStateRenderers.get(ev.payload as string)?.el.remove(); startStateRenderers.delete(ev.payload as string) }
+  if (ev.type === 'endstate:add')     addEndStateRenderer(ev.payload as EndState)
+  if (ev.type === 'endstate:remove')  { endStateRenderers.get(ev.payload as string)?.el.remove(); endStateRenderers.delete(ev.payload as string) }
   if (ev.type === 'connection:add')   { addConnectionRenderer(ev.payload as Connection); refreshConnections() }
   if (ev.type === 'connection:remove') {
     connRenderers.get(ev.payload as string)?.el.remove()
@@ -592,7 +752,7 @@ store.on(ev => {
     selection.clear()
   }
 
-  if (['class:update', 'package:update', 'storage:update', 'actor:update', 'queue:update', 'connection:update'].includes(ev.type)) {
+  if (['class:update', 'package:update', 'storage:update', 'actor:update', 'queue:update', 'connection:update', 'usecase:update', 'ucsystem:update', 'state:update', 'startstate:update', 'endstate:update'].includes(ev.type)) {
     refreshConnections()
     showPropertiesForSelection()
   }
@@ -713,6 +873,11 @@ selection.onChange(items => {
   storageRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
   actorRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
   queueRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
+  ucRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
+  ucSystemRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
+  stateRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
+  startStateRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
+  endStateRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
   connRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
 
   showPropertiesForSelection()
@@ -750,6 +915,30 @@ svg.addEventListener('dblclick', e => {
   }
   if (tool === 'queue') {
     store.addQueue(createQueue({ name: 'Queue', position: { x: pt.x - 80, y: pt.y - 30 } }))
+    return
+  }
+  if (tool === 'use-case') {
+    store.addUseCase(createUseCase({ name: 'Use Case', position: { x: pt.x - 70, y: pt.y - 30 } }))
+    return
+  }
+  if (tool === 'uc-actor') {
+    store.addActor(createActor({ elementType: 'uc-actor', name: 'Actor', position: { x: pt.x - 40, y: pt.y - 50 } }))
+    return
+  }
+  if (tool === 'uc-system') {
+    store.addUCSystem(createUCSystem({ name: 'System', position: { x: pt.x - 130, y: pt.y - 100 } }))
+    return
+  }
+  if (tool === 'state') {
+    store.addState(createState({ name: 'State', position: { x: pt.x - 60, y: pt.y - 22 } }))
+    return
+  }
+  if (tool === 'start-state') {
+    store.addStartState(createStartState({ position: { x: pt.x - 14, y: pt.y - 14 } }))
+    return
+  }
+  if (tool === 'end-state') {
+    store.addEndState(createEndState({ position: { x: pt.x - 18, y: pt.y - 18 } }))
     return
   }
 })
@@ -817,6 +1006,11 @@ svg.addEventListener('mousemove', e => {
   storageRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
   actorRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
   queueRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
+  ucRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
+  ucSystemRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
+  stateRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
+  startStateRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
+  endStateRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
 
   // No resize cursor when multiple elements are selected
   if (selection.items.length > 1) {
@@ -831,6 +1025,11 @@ svg.addEventListener('mousemove', e => {
     ...d.storages.map(s => { const rs = storageRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'storage' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
     ...d.actors.map(a => { const s = actorRenderers.get(a.id)?.getRenderedSize() ?? a.size; return { kind: 'actor' as const, id: a.id, x: a.position.x, y: a.position.y, w: s.w, h: s.h } }),
     ...d.queues.map(q => { const s = queueRenderers.get(q.id)?.getRenderedSize() ?? q.size; return { kind: 'queue' as const, id: q.id, x: q.position.x, y: q.position.y, w: s.w, h: s.h } }),
+    ...d.useCases.map(u => { const s = ucRenderers.get(u.id)?.getRenderedSize() ?? u.size; return { kind: 'use-case' as const, id: u.id, x: u.position.x, y: u.position.y, w: s.w, h: s.h } }),
+    ...d.ucSystems.map(u => { const s = ucSystemRenderers.get(u.id)?.getRenderedSize() ?? u.size; return { kind: 'uc-system' as const, id: u.id, x: u.position.x, y: u.position.y, w: s.w, h: s.h } }),
+    ...(d.states ?? []).map(s => { const rs = stateRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'state' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
+    ...(d.startStates ?? []).map(s => { const rs = startStateRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'start-state' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
+    ...(d.endStates ?? []).map(s => { const rs = endStateRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'end-state' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
   ]
 
   let hit = resize.hitTest(e, allElements)
@@ -864,6 +1063,11 @@ window.addEventListener('mouseup', e => {
         ...d.storages.map(s => { const rs = storageRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'storage' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
         ...d.actors.map(a => { const s = actorRenderers.get(a.id)?.getRenderedSize() ?? a.size; return { kind: 'actor' as const, id: a.id, x: a.position.x, y: a.position.y, w: s.w, h: s.h } }),
         ...d.queues.map(q => { const s = queueRenderers.get(q.id)?.getRenderedSize() ?? q.size; return { kind: 'queue' as const, id: q.id, x: q.position.x, y: q.position.y, w: s.w, h: s.h } }),
+        ...d.useCases.map(u => { const s = ucRenderers.get(u.id)?.getRenderedSize() ?? u.size; return { kind: 'use-case' as const, id: u.id, x: u.position.x, y: u.position.y, w: s.w, h: s.h } }),
+        ...d.ucSystems.map(u => { const s = ucSystemRenderers.get(u.id)?.getRenderedSize() ?? u.size; return { kind: 'uc-system' as const, id: u.id, x: u.position.x, y: u.position.y, w: s.w, h: s.h } }),
+        ...(d.states ?? []).map(s => { const rs = stateRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'state' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
+        ...(d.startStates ?? []).map(s => { const rs = startStateRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'start-state' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
+        ...(d.endStates ?? []).map(s => { const rs = endStateRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'end-state' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
       ]
       for (const el of allEls) {
         // Select elements whose bounds overlap the rubber-band rect
@@ -895,6 +1099,11 @@ document.addEventListener('keydown', e => {
     if (item.kind === 'storage')    store.removeStorage(item.id)
     if (item.kind === 'actor')      store.removeActor(item.id)
     if (item.kind === 'queue')      store.removeQueue(item.id)
+    if (item.kind === 'use-case')    store.removeUseCase(item.id)
+    if (item.kind === 'uc-system')   store.removeUCSystem(item.id)
+    if (item.kind === 'state')       store.removeState(item.id)
+    if (item.kind === 'start-state') store.removeStartState(item.id)
+    if (item.kind === 'end-state')   store.removeEndState(item.id)
     if (item.kind === 'connection') store.removeConnection(item.id)
   })
   selection.clear()
@@ -903,11 +1112,16 @@ document.addEventListener('keydown', e => {
 // ─── Copy / Paste ─────────────────────────────────────────────────────────────
 
 type ClipboardEntry =
-  | { kind: 'class';   data: UmlClass }
-  | { kind: 'package'; data: UmlPackage }
-  | { kind: 'storage'; data: Storage }
-  | { kind: 'actor';   data: Actor }
-  | { kind: 'queue';   data: Queue }
+  | { kind: 'class';       data: UmlClass }
+  | { kind: 'package';     data: UmlPackage }
+  | { kind: 'storage';     data: Storage }
+  | { kind: 'actor';       data: Actor }
+  | { kind: 'queue';       data: Queue }
+  | { kind: 'use-case';    data: UseCase }
+  | { kind: 'uc-system';   data: UCSystem }
+  | { kind: 'state';       data: State }
+  | { kind: 'start-state'; data: StartState }
+  | { kind: 'end-state';   data: EndState }
 
 // Simple clipboard — array of deep-cloned entity snapshots (no connections)
 let clipboard: ClipboardEntry[] = []
@@ -938,6 +1152,21 @@ document.addEventListener('keydown', e => {
       } else if (item.kind === 'queue') {
         const el = d.queues.find(q => q.id === item.id)
         if (el) clipboard.push({ kind: 'queue', data: JSON.parse(JSON.stringify(el)) })
+      } else if (item.kind === 'use-case') {
+        const el = d.useCases.find(u => u.id === item.id)
+        if (el) clipboard.push({ kind: 'use-case', data: JSON.parse(JSON.stringify(el)) })
+      } else if (item.kind === 'uc-system') {
+        const el = d.ucSystems.find(u => u.id === item.id)
+        if (el) clipboard.push({ kind: 'uc-system', data: JSON.parse(JSON.stringify(el)) })
+      } else if (item.kind === 'state') {
+        const el = d.states?.find(s => s.id === item.id)
+        if (el) clipboard.push({ kind: 'state', data: JSON.parse(JSON.stringify(el)) })
+      } else if (item.kind === 'start-state') {
+        const el = d.startStates?.find(s => s.id === item.id)
+        if (el) clipboard.push({ kind: 'start-state', data: JSON.parse(JSON.stringify(el)) })
+      } else if (item.kind === 'end-state') {
+        const el = d.endStates?.find(s => s.id === item.id)
+        if (el) clipboard.push({ kind: 'end-state', data: JSON.parse(JSON.stringify(el)) })
       }
       // connections are intentionally excluded
     }
@@ -973,6 +1202,26 @@ document.addEventListener('keydown', e => {
         const copy = { ...entry.data, id: newId, position: pos }
         store.addQueue(copy)
         selection.select({ kind: 'queue', id: newId }, true)
+      } else if (entry.kind === 'use-case') {
+        const copy = { ...entry.data, id: newId, position: pos }
+        store.addUseCase(copy)
+        selection.select({ kind: 'use-case', id: newId }, true)
+      } else if (entry.kind === 'uc-system') {
+        const copy = { ...entry.data, id: newId, position: pos }
+        store.addUCSystem(copy)
+        selection.select({ kind: 'uc-system', id: newId }, true)
+      } else if (entry.kind === 'state') {
+        const copy = { ...entry.data, id: newId, position: pos }
+        store.addState(copy)
+        selection.select({ kind: 'state', id: newId }, true)
+      } else if (entry.kind === 'start-state') {
+        const copy = { ...entry.data, id: newId, position: pos }
+        store.addStartState(copy)
+        selection.select({ kind: 'start-state', id: newId }, true)
+      } else if (entry.kind === 'end-state') {
+        const copy = { ...entry.data, id: newId, position: pos }
+        store.addEndState(copy)
+        selection.select({ kind: 'end-state', id: newId }, true)
       }
     }
     // Shift clipboard so repeated pastes cascade rather than stack
@@ -1098,12 +1347,20 @@ function rebuildAll() {
   storageLayer.innerHTML = ''
   actorLayer.innerHTML = ''
   queueLayer.innerHTML = ''
+  ucLayer.innerHTML = ''
+  ucSystemLayer.innerHTML = ''
+  stateLayer.innerHTML = ''
   connLayer.innerHTML = ''
   classRenderers.clear()
   pkgRenderers.clear()
   storageRenderers.clear()
   actorRenderers.clear()
   queueRenderers.clear()
+  ucRenderers.clear()
+  ucSystemRenderers.clear()
+  stateRenderers.clear()
+  startStateRenderers.clear()
+  endStateRenderers.clear()
   connRenderers.clear()
 
   const d = store.state
@@ -1111,6 +1368,11 @@ function rebuildAll() {
   d.storages.forEach(addStorageRenderer)
   d.actors.forEach(addActorRenderer)
   d.queues.forEach(addQueueRenderer)
+  d.ucSystems.forEach(addUCSystemRenderer)
+  d.useCases.forEach(addUseCaseRenderer)
+  d.states?.forEach(addStateRenderer)
+  d.startStates?.forEach(addStartStateRenderer)
+  d.endStates?.forEach(addEndStateRenderer)
   d.classes.forEach(addClassRenderer)
   d.connections.forEach(addConnectionRenderer)
   refreshConnections()
