@@ -4,19 +4,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Critical Rules
 
-- **Never duplicate renderer logic across element types.** All renderers must use `svgEl`, `renderPortsInto`, `updatePortPositions`, and `renderShadow` from `renderers/svgUtils.ts`. Port sides come from `PORT_SIDES` (or a per-type subset like `QUEUE_PORT_SIDES`). Store subscriptions follow the pattern `store.on(ev => { if ev.type === '<type>:update' && payload.id === ... })`. Do not copy these patterns — call the shared utilities.
+- **Never duplicate renderer logic across element types.** All renderers must use `svgEl`, `renderPortsInto`, `updatePortPositions`, and `renderShadow` from `renderers/svgUtils.ts`. Port sides come from `PORT_SIDES` (imported from `ports.ts`). Store subscriptions follow the pattern `store.on(ev => { if ev.type === '<kind>:update' && payload.id === ... })`. Do not copy these patterns — call the shared utilities.
+- **All renderers must implement `destroy()`** — at minimum `this.el.remove()`. The `AnyRenderer` interface in `main.ts` requires it.
 - **Connections are always auto-routed** via `bestPortPair` in `routing.ts` — stored ports are updated on every `refreshConnections` call. Never hardcode port sides in connection logic.
-- **`refreshConnections` always passes the fresh `conn` object** from `store.state` directly to `r.updatePoints(...)` as the last argument. Never rely on `this.conn` inside the renderer being up-to-date at call time — there is a race between renderer store subscriptions and the main store listener.
-- **Persistence is JSON** — `saveDiagram` writes the full `Diagram` object as `JSON.stringify`. Do not add Mermaid as a persistence path; it is export-only.
-- **Storage connection direction** — source/target order is canonical for all connection types, including storage. `read` and `write` both use `marker-end` only (arrow at target end); direction is determined by which element is source vs target. Use the flip button to reverse. No normalization swap in `refreshConnections` — storage is treated identically to class connections.
+- **`refreshConnections` always passes the fresh `conn` object** from `store.state` directly to `r.updatePoints(...)` as the last argument. Never rely on `this.conn` inside the renderer being up-to-date at call time.
+- **Persistence is JSON** — `saveDiagram` writes the full `Diagram` object as `JSON.stringify`. All persistence lives in `src/serialization/persistence.ts`.
+- **Storage connection direction** — source/target order is canonical. `read` and `write` both use `marker-end` only; direction is determined by which element is source vs target. Use the flip button to reverse.
 - **Element kind types are defined once** in `src/types.ts` (`ElementKind`, `SelectableKind`). Import from there — never re-declare locally.
-- **Element CRUD follows a uniform pattern** in `DiagramStore`. Use `store.findElementById(kind, id)` and `store.updateElementPosition(kind, id, patch)` in controllers instead of parallel if-else chains over entity collections.
-- **Wire functions in main.ts** use the generic `wireElementInteraction()` helper. Only class has special behaviour (no vertical resize, member editing). All other element types delegate entirely to the helper.
-- **No Chrome DevTools MCP** — do not use chrome-devtools tools in this project.
+- **`Point` and `Size` are defined in `src/entities/common.ts`** — import from there, not from `UmlClass.ts`. UmlClass re-exports them for backwards compatibility.
+- **Store event types use hyphenated names matching `ElementKind`** — e.g. `'use-case:add'`, `'seq-diagram:update'`, `'start-state:remove'`. Never use the old concatenated forms (`usecase`, `seqdiagram`, etc.).
+- **`ELEMENTS` dispatch table in `main.ts`** drives generic loops for selection, copy/paste, delete, rubber-band, and renderer lifecycle. Add new element types there instead of writing per-type if/else chains.
+- **Element CRUD follows a uniform pattern** in `DiagramStore`. Use `store.findElementById(kind, id)`, `store.findAnyElement(id)`, and `store.updateElementPosition(kind, id, patch)` in controllers.
+- **Wire functions in main.ts** use the generic `wireElementInteraction()` helper. Only class has special behaviour (no vertical resize, member editing). Sequence diagrams have their own `wireSeqDiagramInteraction`.
+- **Sequence diagrams are self-contained containers** — each `SequenceDiagram` owns its `lifelines[]`. Lifeline `position.x` is relative to the container. Connections between lifelines are rendered in `seqConnLayer` using absolute canvas coords. The `refreshSeqDiagram` function (and its extracted helpers `assignEphemeralSlots`, `collectMsgEvents`, `computeActiveBars`) handle all per-container rendering.
+- **Chrome DevTools MCP is allowed** for UI debugging and visual verification.
 
 ## Project Overview
 
-A TAM Block Diagram + UML class diagram modeller — browser-only, no backend. Supports UML classes, packages, storage, agent, human-agent, and queue elements. Designed to be extended via config files.
+A multi-diagram modeller — browser-only, no backend. Supports:
+- **UML Class Diagrams** — classes, packages
+- **TAM Block Diagrams** — agents, human agents, storage, queues
+- **TAM Use Case Diagrams** — use cases, actors, system boundaries
+- **TAM State Diagrams** — states, start states, end states
+- **TAM Sequence Diagrams** — self-contained lifeline containers, combined fragments
+
+Designed to be extended via config files and the `ELEMENTS` dispatch table.
 
 ## Commands
 
@@ -33,20 +45,21 @@ npm run lint         # ESLint
 ## Architecture
 
 ### Tech Stack
-- **Vite** + vanilla TypeScript (no framework — keeps it lightweight)
-- **SVG** for rendering all diagram elements (not Canvas — SVG is inspectable and easier to manipulate)
+- **Vite** + vanilla TypeScript (no framework)
+- **SVG** for rendering all diagram elements
 - **Vitest** for unit tests
 
 ### Persistence
 - **localStorage** auto-save on every mutation — key `diagrams-tool:diagram`
 - Format: plain `JSON.stringify(diagram)` of the full `Diagram` object
-- Mermaid (`toMermaid` / `fromMermaid`) is available for **export/import only**, not persistence
-- Old mmd+layout format is auto-migrated to JSON on first load
+- File System Access API for Save/Save As with autosave to open file handle
+- PNG export renders SVG to canvas with Latte (light) theme
+- `DiagramStore.ensureNewFields()` handles migration of old JSON (backfills `elementType` on classes/packages, migrates flat `sequenceLifelines` to `sequenceDiagrams` containers)
 
 ### Theming
 - **Catppuccin** flavours: Latte, Frappé, Macchiato, Mocha
 - Theme token file at `src/themes/catppuccin.ts` — CSS custom properties applied to `:root`
-- All colors in renderers reference CSS vars (`--ctp-*`), never hardcoded
+- All colors reference CSS vars (`--ctp-*`), never hardcoded
 
 ---
 
@@ -55,91 +68,104 @@ npm run lint         # ESLint
 ```
 src/
   types.ts           # Shared types: ElementKind, SelectableKind
-  entities/          # Plain data types — one file per diagram element
+  entities/
+    common.ts        # Point, Size interfaces (canonical source)
+    Diagram.ts       # Root diagram: all collections + viewport
+    UmlClass.ts      # elementType: 'uml-class'
+    Package.ts       # elementType: 'uml-package'
+    Storage.ts       # elementType: 'storage'
+    Actor.ts         # elementType: 'agent' | 'human-agent' | 'uc-actor'
+    Queue.ts         # elementType: 'queue'
+    UseCase.ts       # elementType: 'use-case'
+    UCSystem.ts      # elementType: 'uc-system'
+    State.ts         # elementType: 'state'
+    StartState.ts    # elementType: 'start-state'
+    EndState.ts      # elementType: 'end-state'
+    SequenceDiagram.ts  # elementType: 'seq-diagram', owns lifelines[]
+    SequenceLifeline.ts # elementType: 'seq-lifeline' (nested in SequenceDiagram)
+    CombinedFragment.ts # elementType: 'seq-fragment'
+    Connection.ts    # source/target endpoints, type, multiplicities
   renderers/         # SVG renderers — one per entity type + routing.ts + svgUtils.ts
-  interaction/       # Drag, resize, connect, select controllers
-  store/             # Single in-memory Diagram state + mutation API
-  serialization/     # mermaid.ts: Mermaid export/import + JSON persistence
-  config/            # Element type descriptors (extensibility point)
+  interaction/       # Drag, resize, connect, select, snap, inline-edit controllers
+  store/             # DiagramStore — single state + mutation API + event bus
+  serialization/     # persistence.ts: JSON save/load + PNG export
+  config/            # Element type descriptors (ports, connectionRules, defaultSize)
   themes/            # Catppuccin theme tokens
-  ui/                # Toolbar, popovers, overlays (plain DOM, no framework)
-  main.ts            # Entry point — wires everything together
+  ui/                # Toolbar, ConnectionPopover, MessagePopover, ElementPropertiesPanel, FileMenu
+  main.ts            # Entry point — ELEMENTS dispatch table, wiring, rendering
 ```
 
 ---
 
 ### Entities (`src/entities/`)
 
-Plain data objects — no DOM, no side effects.
+Plain data objects — no DOM, no side effects. All use `Point`/`Size` from `common.ts`. All have `elementType` discriminant field.
 
-- `Diagram.ts` — root: holds packages, classes, storages, actors, queues, connections, viewport
-- `Package.ts` — namespace/grouping container with position and size
-- `UmlClass.ts` — name, stereotype, attributes[], methods[], position, size; also exports `Point` and `Size`
-- `Storage.ts` — name, position, size (database/storage symbol); `multiInstance: boolean`
-- `Actor.ts` — `elementType: 'agent' | 'human-agent'`, name, position, size, `multiInstance: boolean`
-- `Queue.ts` — pill-shaped queue element, name, position, size, `multiInstance: boolean`
-- `Connection.ts` — source element+port, target element+port, type, multiplicities
-
-Connection types: `association | composition | aggregation | inheritance | realization | dependency | read | write | read-write | request`
-
-All positionable entities use `Point` (`{x,y}`) and `Size` (`{w,h}`) from `UmlClass.ts`.
+Connection types: `plain | association | composition | aggregation | inheritance | realization | dependency | request | write | read-write | uc-association | uc-extend | uc-include | uc-specialization | transition`
 
 ---
 
 ### Renderers (`src/renderers/`)
 
-Each renderer owns the SVG `<g>` for one entity instance. Creates on mount, patches on update (no full re-render). Subscribes to store events for self-updates.
+Each renderer owns an SVG `<g>`. All implement: `update()`, `setSelected()`, `destroy()`, `getRenderedSize()`, `getContentMinSize()`.
 
-- `svgUtils.ts` — **shared utilities**: `svgEl`, `renderPortsInto`, `updatePortPositions`, `renderShadow`. All renderers import from here.
-- `routing.ts` — `bestPortPair(srcRect, tgtRect)` + `orthogonalPath(x1,y1,sp, x2,y2,tp)` — strictly axis-aligned elbow routing with rounded Q-bezier corners. Shape rules: **L-shape** for orthogonal exits with forward corner; **U-shape** (midpoint crossbar) for opposing ports; **Z-shape** (never S) for same-direction exits — crossbar exits at source level, travels full span to target level, then enters target. Stub junctions (indices 1 and last-1 in the point chain) are always sharp `L` commands so arrowheads arrive perpendicular.
-- `ports.ts` — `PORT_SIDES`, `portPosition(side,w,h)`, `absolutePortPosition(...)`
-- `ConnectionRenderer.ts` — renders connection lines; `updatePoints` takes a fresh `conn` as 7th argument (passed from `refreshConnections`)
-
-Connection ports are rendered as small circles (via `renderPortsInto`), visible on element hover.
-
-#### `refreshConnections` — three-pass algorithm
-
-1. **Port-pair selection** — calls `bestPortPair(srcRect, tgtRect)` for every connection to determine which port sides to use.
-2. **Slot (frac) assignment** — for each element side that has multiple connections, assigns evenly-spaced `frac` values (0.0–1.0 along the port side) sorted by the peer element's center position: e/w ports sort peers by Y center (top-to-bottom); n/s ports sort peers by X center (left-to-right). This ensures the connection order on each side mirrors the spatial order of the peer elements.
-3. **Render** — calls `r.updatePoints(x1, y1, srcPort, x2, y2, tgtPort, offset, srcRect, tgtRect, freshConn)` for each connection using the computed frac-adjusted port positions.
+- `svgUtils.ts` — `svgEl`, `renderPortsInto`, `updatePortPositions`, `renderShadow`, `estimateTextWidth`
+- `routing.ts` — `bestPortPair`, `orthogonalPath`, `pathMidpoint`; imports `PORT_SIDES` from `ports.ts`
+- `SequenceDiagramRenderer.ts` — outer container renderer owning child `SequenceLifelineRenderer` instances. Subscribes to `seq-diagram:update`, calls `syncLifelineRenderers()` which adds/removes/updates child renderers.
+- `SequenceLifelineRenderer.ts` — uses `svgEl()` from svgUtils (no local SVG_NS). Has `setMsgLocalYs()`, `updateActiveBars()`, `updateInsertSlots()`, `setSpineBottom()` for cross-lifeline rendering driven by `refreshSeqDiagram`.
 
 ---
 
 ### Interaction (`src/interaction/`)
 
-- `SelectionManager.ts` — tracks selected elements; supports additive (shift-click) selection; re-exports `SelectableKind` from `types.ts`
-- `DragController.ts` — move drag; on `startDrag` if the target element is in a multi-selection, all selected elements move together. Uses `store.findElementById` / `store.updateElementPosition`.
-- `ResizeController.ts` — all 8 edges/corners (N/S/E/W/NW/NE/SW/SE); updates both position and size. Classes suppress N/S resize (height is content-driven). Uses `store.findElementById` / `store.updateElementPosition`.
-- `ConnectionController.ts` — port mousedown → ghost line → drop on any element body (auto-snaps to closest port via `bestPortPair`) or specific port; creates connection immediately with defaults, then shows optional popover
-- `InlineEditor.ts` — double-click text node → `<foreignObject>` input; commits on blur/Enter, cancels on Escape
+- `SelectionManager.ts` — tracks selected elements; additive (shift-click) selection
+- `DragController.ts` — single/multi drag with snap guides. Collects rects from ALL element types for snapping.
+- `ResizeController.ts` — 8 edges/corners. Classes suppress N/S resize.
+- `ConnectionController.ts` — port drag → ghost line → drop; uses `store.findAnyElement(id)` for element lookup (no per-type chains)
+- `InlineEditor.ts` — double-click → `<foreignObject>` input
+- `SnapEngine.ts` — center/edge/gap snapping with guide lines
 
 ---
 
 ### Store (`src/store/DiagramStore.ts`)
 
-Single store wrapping a `Diagram`. All mutations go through it (enables undo/redo later). Emits typed events (`class:add`, `class:update`, `storage:update`, `connection:add`, etc.) that renderers and `main.ts` subscribe to.
+Single store wrapping a `Diagram`. Emits typed events (`'<kind>:add|update|remove'`).
 
-Key helpers (used by controllers to avoid if-else chains over entity kind):
-- `findElementById(kind, id)` — returns `{position, size}` for any element kind
-- `updateElementPosition(kind, id, patch)` — routes a position/size patch to the correct typed update method
+Key methods:
+- `findElementById(kind, id)` — returns `{position, size}` for a known kind
+- `findAnyElement(id)` — searches all collections by id (kind-agnostic)
+- `updateElementPosition(kind, id, patch)` — routes position/size patch
+- `cleanupConnectionsForElement(id)` — removes connections referencing an element (called by all `remove*` methods)
+- `ensureNewFields()` — migration: backfills `elementType`, creates missing arrays, migrates legacy `sequenceLifelines`
 
 ---
 
 ### Config (`src/config/`)
 
-- `CARDINAL_PORTS` is exported from `config/elements/umlClass.ts` and shared by storage and actor configs — do not redefine it.
-- Each element type has a config in `config/elements/` implementing `ElementConfig` (ports, connectionRule, defaultSize).
-- Registry in `config/registry.ts` maps type strings to configs.
+- Registry maps config `type` strings to `ElementConfig` objects: `'uml-class'`, `'uml-package'`, `'storage'`, `'agent'`, `'human-agent'`, `'queue'`, `'use-case'`, `'uc-system'`, `'uc-actor'`, `'state'`, `'start-state'`, `'end-state'`, `'seq-lifeline'`, `'seq-fragment'`
+- Each config defines: `ports`, `connectionRule` (asSource/asTarget arrays), `defaultSize`, optional `preferredConnectionType`, `supportsMultiplicity`
 
 ---
 
-### Connection Popover (`src/ui/ConnectionPopover.ts`)
+### Popovers (`src/ui/`)
 
-Non-modal floating panel. Appears after connection drag or on click of existing arrow. Changes apply live on every `change` event — no confirm button. Dismisses on outside click or Escape. **Flip button does not dismiss the popover** — it swaps source ↔ target in the store and leaves the popover open.
+**ConnectionPopover** — shown on connection create/click. Sections: "Type" (icon buttons filtered by element config), "Multiplicity" (source/target dropdowns), "Routing" (auto/min/max elbow). Flip button swaps source↔target. Dismisses on Escape or outside click.
 
-- For storage connections: only shows `read | write | read-write`
-- For actor/queue connections: only shows `request`
-- For class/package connections: shows UML types filtered by `ElementConfig.connectionRule`
+**MessagePopover** — shown on sequence message click. Section: "Kind" (sync/async/create/return/self). Delete via Delete/Backspace key. Same visual style as ConnectionPopover.
+
+Both use section headings (`popover-section-label` CSS class).
+
+---
+
+### main.ts — ELEMENTS Dispatch Table
+
+The `ELEMENTS: ElementDesc[]` array (initialized in `initElementDescriptors()`) maps each element kind to its:
+- `collection` (Diagram field name)
+- `renderers` map
+- `addRenderer` function
+- `add` / `remove` store methods
+
+This drives generic loops for: selection highlight, delete, copy, paste, rubber-band, cursor management, `getRenderedSizeFor`, `findElement`, `rebuildAll`, and store event handling (`:add`/`:remove`).
 
 ---
 
@@ -149,18 +175,37 @@ Collapsible groups with localStorage-persisted state (`toolbar-group:<label>`):
 - **Nav** — Select (V), Pan (H)
 - **UML** — Class (C), Package (P)
 - **TAM** — Agent (A), Human Agent (U), Storage (S), Queue (Q)
+- **UC** — Use Case (E), Actor, System Boundary
+- **SD** — State (T), Start State, End State
+- **SQ** — Sequence Diagram (L), Combined Fragment
+
+---
+
+### Sequence Diagrams
+
+- Each `SequenceDiagram` is a self-contained container with `lifelines: SequenceLifeline[]`
+- Lifeline `position.x` = horizontal offset within container; `position.y` always 0
+- Lifelines are horizontally draggable (header mousedown → `startLifelineHDrag`)
+- `+` buttons appear when a seq-diagram is selected; float with zoom/pan via `refreshLifelineAddButtons()`
+- `refreshSeqDiagram(sd, sdR)` handles: ephemeral slot assignment, event collection, activation bars, insert slots, bounding box, spine extension, inter-lifeline arrows
+- Helper functions: `assignEphemeralSlots()`, `collectMsgEvents()`, `computeActiveBars()`
+- `removeSeqMessage()` deletes a message and re-compacts slotIndex values across all lifelines
+- Self-calls (`kind: 'self'`) keep activation bars open (don't close them)
+- Spines extend to the diagram-wide max height via `setSpineBottom()`
+- Insert slots appear between ALL arrows touching a lifeline (incoming + outgoing)
 
 ---
 
 ### Extensibility
 
-Adding a new element type requires:
-1. Entity file in `src/entities/` — use `Point` and `Size` from `UmlClass.ts`
-2. Renderer in `src/renderers/` — use `svgEl`, `renderPortsInto`, `updatePortPositions`, `renderShadow` from `svgUtils.ts`
-3. Config descriptor in `src/config/elements/` — reuse `CARDINAL_PORTS` if applicable
+Adding a new element type:
+1. Entity in `src/entities/` — use `Point`/`Size` from `common.ts`, include `elementType` field
+2. Renderer in `src/renderers/` — implement `update()`, `setSelected()`, `destroy()`, `getRenderedSize()`, `getContentMinSize()`
+3. Config in `src/config/elements/` — ports, connectionRule, defaultSize
 4. Register in `src/config/registry.ts`
 5. Add kind to `ElementKind` in `src/types.ts`
-6. Add CRUD to `DiagramStore` + guard in constructor and `load()`
-7. Add `add*Renderer` factory, store event handler, `rebuildAll` iteration, and delete handler in `main.ts`
-8. Wire interaction via `wireElementInteraction()` in `main.ts`
-9. Add toolbar button, CSS styles, and keyboard shortcut
+6. Add CRUD to `DiagramStore` + add collection to `ensureNewFields()`
+7. Add entry to `ELEMENTS` array in `main.ts` (handles store events, delete, copy/paste, selection, rubber-band automatically)
+8. Add `add*Renderer` factory + `wireElementInteraction()` call
+9. Add toolbar button (tool type, icon, label, keyboard shortcut, group)
+10. Add CSS styles

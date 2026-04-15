@@ -27,6 +27,7 @@ body {
 
 .titlebar-menu {
   position: relative;
+  margin-left: 56px;
 }
 
 .titlebar-menu-btn {

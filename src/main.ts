@@ -1,6 +1,6 @@
 import { DiagramStore } from './store/DiagramStore.ts'
 import { loadSavedTheme } from './themes/catppuccin.ts'
-import { loadDiagram, saveDiagram, openAndSaveToFile, closeActiveFile, getActiveFileName, loadDiagramFromFile, exportDiagramToPng } from './serialization/mermaid.ts'
+import { loadDiagram, saveDiagram, openAndSaveToFile, closeActiveFile, getActiveFileName, loadDiagramFromFile, exportDiagramToPng } from './serialization/persistence.ts'
 import { ClassRenderer } from './renderers/ClassRenderer.ts'
 import { PackageRenderer } from './renderers/PackageRenderer.ts'
 import { StorageRenderer } from './renderers/StorageRenderer.ts'
