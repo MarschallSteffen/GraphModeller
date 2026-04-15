@@ -11,6 +11,10 @@ import { UCSystemRenderer } from './renderers/UCSystemRenderer.ts'
 import { StateRenderer } from './renderers/StateRenderer.ts'
 import { StartStateRenderer } from './renderers/StartStateRenderer.ts'
 import { EndStateRenderer } from './renderers/EndStateRenderer.ts'
+import { SEQ_HEADER_H, SEQ_MSG_ROW_H } from './renderers/SequenceLifelineRenderer.ts'
+import type { ActiveSpan, InsertSlot } from './renderers/SequenceLifelineRenderer.ts'
+import { SequenceDiagramRenderer } from './renderers/SequenceDiagramRenderer.ts'
+import { CombinedFragmentRenderer } from './renderers/CombinedFragmentRenderer.ts'
 import { ConnectionRenderer, injectMarkerDefs } from './renderers/ConnectionRenderer.ts'
 import { DragController } from './interaction/DragController.ts'
 import { ResizeController } from './interaction/ResizeController.ts'
@@ -20,6 +24,7 @@ import { InlineEditor } from './interaction/InlineEditor.ts'
 import { Toolbar } from './ui/Toolbar.ts'
 import { FileMenu } from './ui/FileMenu.ts'
 import { showConnectionPopover } from './ui/ConnectionPopover.ts'
+import { showMsgPopover } from './ui/MessagePopover.ts'
 import { showElementPropertiesPanel, hideElementPropertiesPanel } from './ui/ElementPropertiesPanel.ts'
 import { createUmlClass } from './entities/UmlClass.ts'
 import { createUmlPackage } from './entities/Package.ts'
@@ -31,6 +36,10 @@ import { createUCSystem } from './entities/UCSystem.ts'
 import { createState } from './entities/State.ts'
 import { createStartState } from './entities/StartState.ts'
 import { createEndState } from './entities/EndState.ts'
+import { createSequenceDiagram } from './entities/SequenceDiagram.ts'
+import type { SequenceDiagram } from './entities/SequenceDiagram.ts'
+import { createSequenceLifeline } from './entities/SequenceLifeline.ts'
+import { createCombinedFragment } from './entities/CombinedFragment.ts'
 import { createDiagram } from './entities/Diagram.ts'
 import type { UmlClass } from './entities/UmlClass.ts'
 import type { UmlPackage } from './entities/Package.ts'
@@ -42,6 +51,8 @@ import type { UCSystem } from './entities/UCSystem.ts'
 import type { State } from './entities/State.ts'
 import type { StartState } from './entities/StartState.ts'
 import type { EndState } from './entities/EndState.ts'
+import type { SequenceMessage } from './entities/SequenceLifeline.ts'
+import type { CombinedFragment } from './entities/CombinedFragment.ts'
 import type { Connection } from './entities/Connection.ts'
 import { absolutePortPosition } from './renderers/ports.ts'
 import { getElementConfig } from './config/registry.ts'
@@ -79,6 +90,7 @@ const fileMenuCallbacks = {
         store.state.storages.length || store.state.actors.length ||
         store.state.queues.length || store.state.useCases.length || store.state.ucSystems.length ||
         store.state.states?.length || store.state.startStates?.length || store.state.endStates?.length ||
+        store.state.sequenceDiagrams?.length || store.state.combinedFragments?.length ||
         store.state.connections.length) {
       if (!confirm('Create a new diagram? Unsaved changes will be lost.')) return
     }
@@ -133,9 +145,11 @@ const queueLayer    = document.createElementNS('http://www.w3.org/2000/svg', 'g'
 const ucSystemLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g')
 const ucLayer       = document.createElementNS('http://www.w3.org/2000/svg', 'g')
 const stateLayer    = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+const seqLayer      = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+const seqConnLayer  = document.createElementNS('http://www.w3.org/2000/svg', 'g')
 const connLayer     = document.createElementNS('http://www.w3.org/2000/svg', 'g')
 const clsLayer      = document.createElementNS('http://www.w3.org/2000/svg', 'g')
-viewGroup.append(pkgLayer, storageLayer, actorLayer, queueLayer, ucSystemLayer, ucLayer, stateLayer, connLayer, clsLayer)
+viewGroup.append(pkgLayer, storageLayer, actorLayer, queueLayer, ucSystemLayer, ucLayer, stateLayer, seqLayer, seqConnLayer, connLayer, clsLayer)
 
 // Rubber-band selection rect — lives inside viewGroup so coords are in diagram space
 const rubberBandRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
@@ -180,6 +194,8 @@ const ucSystemRenderers = new Map<string, UCSystemRenderer>()
 const stateRenderers      = new Map<string, StateRenderer>()
 const startStateRenderers = new Map<string, StartStateRenderer>()
 const endStateRenderers   = new Map<string, EndStateRenderer>()
+const seqDiagramRenderers    = new Map<string, SequenceDiagramRenderer>()
+const seqFragmentRenderers  = new Map<string, CombinedFragmentRenderer>()
 const connRenderers     = new Map<string, ConnectionRenderer>()
 
 // ─── SVG helper ───────────────────────────────────────────────────────────────
@@ -218,6 +234,8 @@ function getContainedElements(pkgId: string): Array<{ kind: ElementKind; id: str
   d.states?.forEach(e    => { if (inside(e)) result.push({ kind: 'state',       id: e.id }) })
   d.startStates?.forEach(e => { if (inside(e)) result.push({ kind: 'start-state', id: e.id }) })
   d.endStates?.forEach(e   => { if (inside(e)) result.push({ kind: 'end-state',   id: e.id }) })
+  d.sequenceDiagrams?.forEach(e => { if (inside(e)) result.push({ kind: 'seq-diagram', id: e.id }) })
+  d.combinedFragments?.forEach(e => { if (inside(e)) result.push({ kind: 'seq-fragment', id: e.id }) })
   return result
 }
 
@@ -338,6 +356,363 @@ function addEndStateRenderer(state: EndState) {
   wireEndStateInteraction(r, state)
 }
 
+// + Add-lifeline buttons (ephemeral, positioned in screen space)
+let lifelineAddCleanup: (() => void) | null = null
+let lifelineAddSdId: string | null = null
+
+function hideLifelineAddButtons() {
+  lifelineAddCleanup?.()
+  lifelineAddCleanup = null
+  lifelineAddSdId = null
+}
+
+function showLifelineAddButtons(sd: SequenceDiagram) {
+  hideLifelineAddButtons()
+  lifelineAddSdId = sd.id
+  const svgRect = svg.getBoundingClientRect()
+  const vp = store.state.viewport
+
+  const toScreen = (diagX: number, diagY: number) => ({
+    x: svgRect.left + (diagX) * vp.zoom + vp.x,
+    y: svgRect.top  + (diagY) * vp.zoom + vp.y,
+  })
+
+  const r = seqDiagramRenderers.get(sd.id)
+  const { w: sdW } = r?.getRenderedSize() ?? sd.size
+  const midY = sd.position.y + SEQ_HEADER_H / 2
+
+  const leftPos  = toScreen(sd.position.x - 28, midY - 11)
+  const rightPos = toScreen(sd.position.x + sdW + 4, midY - 11)
+
+  function makeBtn(side: 'left' | 'right', pos: { x: number; y: number }) {
+    const btn = document.createElement('button')
+    btn.className = 'lifeline-add-btn'
+    btn.textContent = '+'
+    btn.title = side === 'left' ? 'Add lifeline to the left' : 'Add lifeline to the right'
+    btn.style.left = `${pos.x}px`
+    btn.style.top  = `${pos.y}px`
+    btn.addEventListener('mousedown', e => e.stopPropagation())
+    btn.addEventListener('click', e => {
+      e.stopPropagation()
+      addLifelineToSeqDiagram(sd.id, side)
+    })
+    document.body.appendChild(btn)
+    return btn
+  }
+
+  const btnLeft  = makeBtn('left',  leftPos)
+  const btnRight = makeBtn('right', rightPos)
+
+  lifelineAddCleanup = () => {
+    btnLeft.remove()
+    btnRight.remove()
+  }
+}
+
+function refreshLifelineAddButtons() {
+  if (!lifelineAddSdId) return
+  const sd = store.state.sequenceDiagrams.find(s => s.id === lifelineAddSdId)
+  if (sd) showLifelineAddButtons(sd)
+  else hideLifelineAddButtons()
+}
+
+function addLifelineToSeqDiagram(sdId: string, side: 'left' | 'right') {
+  const sd = store.state.sequenceDiagrams.find(s => s.id === sdId)
+  if (!sd) return
+  const GAP = 20
+  const LL_W = 140
+  if (side === 'right') {
+    const lastX = sd.lifelines.length > 0
+      ? Math.max(...sd.lifelines.map(ll => ll.position.x + LL_W))
+      : 0
+    const newLL = createSequenceLifeline(lastX + GAP, 0)
+    store.updateSequenceDiagram(sdId, { lifelines: [...sd.lifelines, newLL] })
+  } else {
+    const newLL = createSequenceLifeline(0, 0)
+    const shifted = sd.lifelines.map(ll => ({ ...ll, position: { x: ll.position.x + LL_W + GAP, y: ll.position.y } }))
+    store.updateSequenceDiagram(sdId, { lifelines: [newLL, ...shifted] })
+  }
+}
+
+function addSeqDiagramRenderer(sd: SequenceDiagram) {
+  const r = new SequenceDiagramRenderer(
+    sd,
+    store,
+    seqLayer,
+    (sdId, lifeline, slot) => startSeqSlotDrag(sdId, lifeline.id, slot),
+    (sdId, lifeline, msgIdx) => {
+      const currentSd = store.state.sequenceDiagrams.find(s => s.id === sdId)
+      const currentLL = currentSd?.lifelines.find(l => l.id === lifeline.id)
+      if (!currentSd || !currentLL) return
+      const llR = r.getLifelineRenderer(lifeline.id)
+      const msgEl = llR?.getMsgTextEl(msgIdx)
+      if (!msgEl) return
+      inlineEditor.edit(msgEl, currentLL.messages[msgIdx].label, (val) => {
+        const latestSd = store.state.sequenceDiagrams.find(s => s.id === sdId)
+        if (!latestSd) return
+        const latestLL = latestSd.lifelines.find(l => l.id === lifeline.id)
+        if (!latestLL) return
+        const msgs = [...latestLL.messages]
+        msgs[msgIdx] = { ...msgs[msgIdx], label: val }
+        store.updateSequenceDiagram(sdId, {
+          lifelines: latestSd.lifelines.map(l => l.id === lifeline.id ? { ...l, messages: msgs } : l)
+        })
+      })
+    },
+    (sdId, lifeline, fromLocalY) => startSeqPortDrag(sdId, lifeline.id, fromLocalY),
+  )
+  seqDiagramRenderers.set(sd.id, r)
+  wireSeqDiagramInteraction(r, sd)
+}
+
+function startLifelineHDrag(sdId: string, llId: string, e: MouseEvent) {
+  const sd = store.state.sequenceDiagrams.find(s => s.id === sdId)
+  if (!sd) return
+  const ll = sd.lifelines.find(l => l.id === llId)
+  if (!ll) return
+  const startPt = getSvgPoint(e)
+  const startX = ll.position.x
+
+  function onMove(ev: MouseEvent) {
+    const pt = getSvgPoint(ev)
+    const dx = pt.x - startPt.x
+    const newX = Math.max(0, startX + dx)
+    const latestSd = store.state.sequenceDiagrams.find(s => s.id === sdId)
+    if (!latestSd) return
+    store.updateSequenceDiagram(sdId, {
+      lifelines: latestSd.lifelines.map(l =>
+        l.id === llId ? { ...l, position: { x: newX, y: 0 } } : l
+      ),
+    })
+  }
+  function onUp() {
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+  }
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
+
+function wireSeqDiagramInteraction(r: SequenceDiagramRenderer, sd: SequenceDiagram) {
+  r.el.addEventListener('mousedown', e => {
+    if (connect.isConnecting) return
+    if (toolbar.activeTool === 'pan') return
+    // Message-row interactions already stopped propagation, so this only fires for container drag
+    const row = (e.target as Element).closest<SVGElement>('.seq-msg-row')
+    if (row) return
+
+    // Lifeline header drag → horizontal reorder within container
+    const header = (e.target as Element).closest<SVGElement>('.seq-header-bg')
+    if (header) {
+      const llGroup = header.closest<SVGElement>('.seq-lifeline')
+      if (llGroup?.dataset.id) {
+        selection.select({ kind: 'seq-diagram', id: sd.id }, e.shiftKey)
+        startLifelineHDrag(sd.id, llGroup.dataset.id, e)
+        e.stopPropagation()
+        return
+      }
+    }
+
+    if (!e.shiftKey && selection.isSelected(sd.id) && selection.items.length > 1) {
+      drag.startDrag({ kind: 'seq-diagram', id: sd.id }, e, selection.items)
+    } else {
+      selection.select({ kind: 'seq-diagram', id: sd.id }, e.shiftKey)
+      drag.startDrag({ kind: 'seq-diagram', id: sd.id }, e, selection.items)
+    }
+    e.stopPropagation()
+  })
+
+  // Delegate message-row clicks to show popover (scoped to container's lifelines)
+  r.el.addEventListener('click', e => {
+    const row = (e.target as Element).closest<SVGElement>('.seq-msg-row')
+    if (!row || row.dataset.msgIdx === undefined) return
+    e.stopPropagation()
+
+    // Find which lifeline this row belongs to by walking up to the lifeline group
+    const llGroup = (e.target as Element).closest<SVGElement>('.seq-lifeline')
+    if (!llGroup) return
+    const llId = llGroup.dataset.id
+    if (!llId) return
+
+    const msgIdx = Number(row.dataset.msgIdx)
+    const currentSd = store.state.sequenceDiagrams.find(s => s.id === sd.id)
+    const currentLL = currentSd?.lifelines.find(l => l.id === llId)
+    if (!currentSd || !currentLL) return
+    const msg = currentLL.messages[msgIdx]
+    if (!msg) return
+
+    const otherLifelines = currentSd.lifelines
+      .filter(l => l.id !== llId)
+      .map(l => ({ id: l.id, name: l.name }))
+
+    showMsgPopover(
+      e.clientX, e.clientY,
+      msg,
+      otherLifelines,
+      (patch) => {
+        const latestSd = store.state.sequenceDiagrams.find(s => s.id === sd.id)
+        if (!latestSd) return
+        const latestLL = latestSd.lifelines.find(l => l.id === llId)
+        if (!latestLL) return
+        const msgs = [...latestLL.messages]
+        msgs[msgIdx] = { ...msgs[msgIdx], ...patch }
+        store.updateSequenceDiagram(sd.id, {
+          lifelines: latestSd.lifelines.map(l => l.id === llId ? { ...l, messages: msgs } : l)
+        })
+      },
+      () => {
+        const latestSd = store.state.sequenceDiagrams.find(s => s.id === sd.id)
+        if (!latestSd) return
+        const latestLL = latestSd.lifelines.find(l => l.id === llId)
+        if (!latestLL) return
+        store.updateSequenceDiagram(sd.id, {
+          lifelines: latestSd.lifelines.map(l => l.id === llId
+            ? { ...l, messages: l.messages.filter((_, i) => i !== msgIdx) }
+            : l)
+        })
+      },
+      () => {},
+    )
+  })
+
+  // Lifeline header dblclick → rename lifeline
+  r.el.addEventListener('dblclick', e => {
+    const target = e.target as Element
+    if (!target.classList.contains('seq-header-bg') && !target.closest('.seq-header-bg')) return
+    const llGroup = target.closest<SVGElement>('.seq-lifeline')
+    if (!llGroup) return
+    const llId = llGroup.dataset.id
+    if (!llId) return
+    e.stopPropagation()
+
+    const currentSd = store.state.sequenceDiagrams.find(s => s.id === sd.id)
+    const currentLL = currentSd?.lifelines.find(l => l.id === llId)
+    if (!currentSd || !currentLL) return
+
+    const llR = r.getLifelineRenderer(llId)
+    const nameEl = llR?.el.querySelector<SVGTextElement>('.seq-header-name')
+    if (!nameEl) return
+    inlineEditor.edit(nameEl, currentLL.name, (val) => {
+      const latestSd = store.state.sequenceDiagrams.find(s => s.id === sd.id)
+      if (!latestSd) return
+      store.updateSequenceDiagram(sd.id, {
+        lifelines: latestSd.lifelines.map(l => l.id === llId ? { ...l, name: val } : l)
+      })
+    })
+  })
+
+  // Message-row drag to connect to another lifeline (within this container)
+  r.el.addEventListener('mousedown', (e) => {
+    const row = (e.target as Element).closest<SVGElement>('.seq-msg-row')
+    if (!row || row.dataset.msgIdx === undefined) return
+    if (e.button !== 0) return
+
+    e.stopImmediatePropagation()
+    e.stopPropagation()
+    e.preventDefault()
+
+    const llGroup = (e.target as Element).closest<SVGElement>('.seq-lifeline')
+    if (!llGroup) return
+    const llId = llGroup.dataset.id
+    if (!llId) return
+
+    const msgIdx = Number(row.dataset.msgIdx)
+    const currentSd = store.state.sequenceDiagrams.find(s => s.id === sd.id)
+    const currentLL = currentSd?.lifelines.find(l => l.id === llId)
+    if (!currentSd || !currentLL) return
+
+    const llR = r.getLifelineRenderer(llId)
+    if (!llR) return
+
+    const spineAbsX = sd.position.x + currentLL.position.x + llR.getSpineX()
+    const baselineY = sd.position.y + SEQ_HEADER_H
+    const ephemeral = (currentLL.messages[msgIdx] as SequenceMessage & { _ephemeralSlot?: number })._ephemeralSlot
+    const globalSlot = currentLL.messages[msgIdx].slotIndex ?? ephemeral ?? msgIdx
+    const msgY = baselineY + globalSlot * SEQ_MSG_ROW_H + SEQ_MSG_ROW_H / 2
+
+    const ghost = document.createElementNS('http://www.w3.org/2000/svg', 'line')
+    ghost.classList.add('ghost-line')
+    ghost.setAttribute('x1', String(spineAbsX))
+    ghost.setAttribute('y1', String(msgY))
+    ghost.setAttribute('x2', String(spineAbsX))
+    ghost.setAttribute('y2', String(msgY))
+    ghost.setAttribute('pointer-events', 'none')
+    seqConnLayer.appendChild(ghost)
+
+    r.getLifelineRenderers().forEach((lr, id) => { if (id !== llId) lr.setDropTarget(true) })
+
+    let dragStarted = false
+    const startX = e.clientX
+    const startY = e.clientY
+    let lastHoveredId: string | null = null
+
+    function onMove(ev: MouseEvent) {
+      if (!dragStarted) {
+        if (Math.abs(ev.clientX - startX) < 4 && Math.abs(ev.clientY - startY) < 4) return
+        dragStarted = true
+      }
+      const svgPt = getSvgPoint(ev)
+      ghost.setAttribute('x2', String(svgPt.x))
+      ghost.setAttribute('y2', String(svgPt.y))
+
+      let hovId: string | null = null
+      const latestSd2 = store.state.sequenceDiagrams.find(s => s.id === sd.id)
+      if (latestSd2) {
+        for (const [id, lr] of r.getLifelineRenderers()) {
+          if (id === llId) continue
+          const tgtLL = latestSd2.lifelines.find(l => l.id === id)
+          if (!tgtLL) continue
+          const { w, h } = lr.getRenderedSize()
+          const absX = sd.position.x + tgtLL.position.x
+          const absY2 = sd.position.y
+          if (svgPt.x >= absX && svgPt.x <= absX + w &&
+              svgPt.y >= absY2 && svgPt.y <= absY2 + h) {
+            hovId = id; break
+          }
+        }
+      }
+      if (hovId !== lastHoveredId) {
+        if (lastHoveredId) r.getLifelineRenderer(lastHoveredId)?.setDropSlot(null)
+        lastHoveredId = hovId
+      }
+      if (hovId) {
+        const latestSd3 = store.state.sequenceDiagrams.find(s => s.id === sd.id)
+        const tgtLL = latestSd3?.lifelines.find(l => l.id === hovId)
+        if (tgtLL) r.getLifelineRenderer(hovId)?.setDropSlot(msgY - (sd.position.y + tgtLL.position.y))
+      }
+    }
+
+    function onUp(_ev: MouseEvent) {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      ghost.remove()
+      const droppedOnId = lastHoveredId
+      if (lastHoveredId) r.getLifelineRenderer(lastHoveredId)?.setDropSlot(null)
+      r.getLifelineRenderers().forEach(lr => lr.setDropTarget(false))
+
+      if (!dragStarted || !droppedOnId) return
+
+      const latestSd4 = store.state.sequenceDiagrams.find(s => s.id === sd.id)
+      const latestLL = latestSd4?.lifelines.find(l => l.id === llId)
+      if (!latestSd4 || !latestLL) return
+      const msgs = [...latestLL.messages]
+      msgs[msgIdx] = { ...msgs[msgIdx], targetLifelineId: droppedOnId }
+      store.updateSequenceDiagram(sd.id, {
+        lifelines: latestSd4.lifelines.map(l => l.id === llId ? { ...l, messages: msgs } : l)
+      })
+    }
+
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  })
+}
+
+function addSeqFragmentRenderer(frag: CombinedFragment) {
+  const r = new CombinedFragmentRenderer(frag, store, seqLayer)
+  seqFragmentRenderers.set(frag.id, r)
+  wireSeqFragmentInteraction(r, frag)
+}
+
 // Active connection popover dismiss — call to close any open connection popover
 let dismissConnPopover: (() => void) | null = null
 
@@ -428,6 +803,10 @@ function findElement(
   if (ss) return { el: ss as AnyElement, type: 'start-state' }
   const es = (d as typeof store.state).endStates?.find((s: { id: string }) => s.id === id)
   if (es) return { el: es as AnyElement, type: 'end-state' }
+  const seqSD = (d as typeof store.state).sequenceDiagrams?.find((s: { id: string }) => s.id === id)
+  if (seqSD) return { el: seqSD as AnyElement, type: 'seq-diagram' }
+  const seqFr = (d as typeof store.state).combinedFragments?.find((f: { id: string }) => f.id === id)
+  if (seqFr) return { el: seqFr as AnyElement, type: 'seq-fragment' }
   return undefined
 }
 
@@ -443,6 +822,8 @@ function getRenderedSizeFor(id: string, found: { el: AnyElement; type: string })
     ?? stateRenderers.get(id)?.getRenderedSize()
     ?? startStateRenderers.get(id)?.getRenderedSize()
     ?? endStateRenderers.get(id)?.getRenderedSize()
+    ?? seqDiagramRenderers.get(id)?.getRenderedSize()
+    ?? seqFragmentRenderers.get(id)?.getRenderedSize()
     ?? found.el.size
 }
 
@@ -514,6 +895,8 @@ function getMinSize(kind: ElementKind, id: string): { w: number; h: number } {
     case 'state':       return stateRenderers.get(id)?.getContentMinSize()     ?? { w: 80,  h: 36 }
     case 'start-state': return startStateRenderers.get(id)?.getContentMinSize() ?? { w: 28, h: 28 }
     case 'end-state':   return endStateRenderers.get(id)?.getContentMinSize()   ?? { w: 36, h: 36 }
+    case 'seq-diagram': return seqDiagramRenderers.get(id)?.getRenderedSize() ?? { w: 300, h: 200 }
+    case 'seq-fragment': return seqFragmentRenderers.get(id)?.getContentMinSize() ?? { w: 80, h: 60 }
   }
 }
 
@@ -712,6 +1095,220 @@ function wireEndStateInteraction(r: EndStateRenderer, state: EndState) {
   })
 }
 
+/**
+ * Drag a new message connection starting from an insert slot on srcLLId within sdId.
+ */
+function startSeqSlotDrag(sdId: string, srcLLId: string, slot: InsertSlot) {
+  const sd = store.state.sequenceDiagrams.find(s => s.id === sdId)
+  const sdR_ = seqDiagramRenderers.get(sdId)
+  if (!sd || !sdR_) return
+  const sdR = sdR_
+  const srcLL = sd.lifelines.find(l => l.id === srcLLId)
+  const srcR  = sdR.getLifelineRenderer(srcLLId)
+  if (!srcLL || !srcR) return
+
+  const absX = sd.position.x + srcLL.position.x + srcR.getSpineX()
+  const absY = sd.position.y + slot.localY
+
+  const ghost = document.createElementNS('http://www.w3.org/2000/svg', 'line')
+  ghost.classList.add('ghost-line')
+  ghost.setAttribute('x1', String(absX))
+  ghost.setAttribute('y1', String(absY))
+  ghost.setAttribute('x2', String(absX))
+  ghost.setAttribute('y2', String(absY))
+  ghost.setAttribute('pointer-events', 'none')
+  seqConnLayer.appendChild(ghost)
+
+  sdR.getLifelineRenderers().forEach((_r) => { _r.setDropTarget(true) })
+
+  let lastHoveredId: string | null = null
+  const HIT_PAD = 20
+
+  function onMove(ev: MouseEvent) {
+    const svgPt = getSvgPoint(ev)
+    ghost.setAttribute('x2', String(svgPt.x))
+    ghost.setAttribute('y2', String(svgPt.y))
+
+    const latestSd = store.state.sequenceDiagrams.find(s => s.id === sdId)
+    let hovId: string | null = null
+    if (latestSd) {
+      for (const [id, lr] of sdR.getLifelineRenderers()) {
+        const tgtLL = latestSd.lifelines.find(l => l.id === id)
+        if (!tgtLL) continue
+        const { w, h } = lr.getRenderedSize()
+        const tgtAbsX = latestSd.position.x + tgtLL.position.x
+        const tgtAbsY = latestSd.position.y
+        if (svgPt.x >= tgtAbsX - HIT_PAD && svgPt.x <= tgtAbsX + w + HIT_PAD &&
+            svgPt.y >= tgtAbsY - HIT_PAD && svgPt.y <= tgtAbsY + h + HIT_PAD) {
+          hovId = id; break
+        }
+      }
+    }
+
+    if (hovId !== lastHoveredId) {
+      if (lastHoveredId) sdR.getLifelineRenderer(lastHoveredId)?.setDropSlot(null)
+      lastHoveredId = hovId
+    }
+    if (hovId) {
+      const latestSd2 = store.state.sequenceDiagrams.find(s => s.id === sdId)
+      const tgtLL = latestSd2?.lifelines.find(l => l.id === hovId)
+      if (tgtLL) sdR.getLifelineRenderer(hovId)?.setDropSlot(absY - (latestSd2!.position.y + tgtLL.position.y))
+    }
+  }
+
+  function onUp(_ev: MouseEvent) {
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+    ghost.remove()
+    const droppedOnId = lastHoveredId
+    if (lastHoveredId) sdR.getLifelineRenderer(lastHoveredId)?.setDropSlot(null)
+    sdR.getLifelineRenderers().forEach(r => r.setDropTarget(false))
+
+    if (!droppedOnId) return
+
+    const latestSd = store.state.sequenceDiagrams.find(s => s.id === sdId)
+    if (!latestSd) return
+    const baselineY = latestSd.position.y + SEQ_HEADER_H
+    const SLOT_H = SEQ_MSG_ROW_H
+    const newGlobalSlot = Math.max(0, Math.floor((absY - baselineY) / SLOT_H))
+
+    // Bump all messages with slotIndex >= newGlobalSlot across ALL lifelines in this container
+    const bumpedLifelines = latestSd.lifelines.map(ll => ({
+      ...ll,
+      messages: ll.messages.map(m =>
+        m.slotIndex !== undefined && m.slotIndex >= newGlobalSlot
+          ? { ...m, slotIndex: m.slotIndex + 1 }
+          : m
+      )
+    }))
+
+    const srcLLBumped = bumpedLifelines.find(l => l.id === srcLLId)
+    if (!srcLLBumped) return
+
+    const isSelfCall = droppedOnId === srcLLId
+    const msg: SequenceMessage = {
+      id: crypto.randomUUID(),
+      label: 'message',
+      targetLifelineId: isSelfCall ? null : droppedOnId,
+      kind: isSelfCall ? 'self' : 'sync',
+      slotIndex: newGlobalSlot,
+    }
+    const msgs = [...srcLLBumped.messages]
+    msgs.splice(slot.slotIdx, 0, msg)
+
+    store.updateSequenceDiagram(sdId, {
+      lifelines: bumpedLifelines.map(l => l.id === srcLLId ? { ...l, messages: msgs } : l)
+    })
+  }
+
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
+
+function startSeqPortDrag(sdId: string, srcLLId: string, fromLocalY: number) {
+  const sd = store.state.sequenceDiagrams.find(s => s.id === sdId)
+  const sdR_ = seqDiagramRenderers.get(sdId)
+  if (!sd || !sdR_) return
+  const sdR = sdR_
+  const srcLL = sd.lifelines.find(l => l.id === srcLLId)
+  const srcR  = sdR.getLifelineRenderer(srcLLId)
+  if (!srcLL || !srcR) return
+
+  const absX = sd.position.x + srcLL.position.x + srcR.getSpineX()
+  const absY = sd.position.y + fromLocalY
+
+  const ghost = document.createElementNS('http://www.w3.org/2000/svg', 'line')
+  ghost.classList.add('ghost-line')
+  ghost.setAttribute('x1', String(absX))
+  ghost.setAttribute('y1', String(absY))
+  ghost.setAttribute('x2', String(absX))
+  ghost.setAttribute('y2', String(absY))
+  ghost.setAttribute('pointer-events', 'none')
+  seqConnLayer.appendChild(ghost)
+
+  sdR.getLifelineRenderers().forEach((_r) => { _r.setDropTarget(true) })
+
+  let lastHoveredId: string | null = null
+  const HIT_PAD = 20
+
+  function onMove(ev: MouseEvent) {
+    const svgPt = getSvgPoint(ev)
+    ghost.setAttribute('x2', String(svgPt.x))
+    ghost.setAttribute('y2', String(svgPt.y))
+
+    const latestSd = store.state.sequenceDiagrams.find(s => s.id === sdId)
+    let hovId: string | null = null
+    if (latestSd) {
+      for (const [id, lr] of sdR.getLifelineRenderers()) {
+        const tgtLL = latestSd.lifelines.find(l => l.id === id)
+        if (!tgtLL) continue
+        const { w, h } = lr.getRenderedSize()
+        const tgtAbsX = latestSd.position.x + tgtLL.position.x
+        const tgtAbsY = latestSd.position.y
+        if (svgPt.x >= tgtAbsX - HIT_PAD && svgPt.x <= tgtAbsX + w + HIT_PAD &&
+            svgPt.y >= tgtAbsY - HIT_PAD && svgPt.y <= tgtAbsY + h + HIT_PAD) {
+          hovId = id; break
+        }
+      }
+    }
+
+    if (hovId !== lastHoveredId) {
+      if (lastHoveredId) sdR.getLifelineRenderer(lastHoveredId)?.setDropSlot(null)
+      lastHoveredId = hovId
+    }
+    if (hovId) {
+      const latestSd2 = store.state.sequenceDiagrams.find(s => s.id === sdId)
+      const tgtLL = latestSd2?.lifelines.find(l => l.id === hovId)
+      if (tgtLL) sdR.getLifelineRenderer(hovId)?.setDropSlot(absY - (latestSd2!.position.y + tgtLL.position.y))
+    }
+  }
+
+  function onUp(_ev: MouseEvent) {
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+    ghost.remove()
+    const droppedOnId = lastHoveredId
+    if (lastHoveredId) sdR.getLifelineRenderer(lastHoveredId)?.setDropSlot(null)
+    sdR.getLifelineRenderers().forEach(r => r.setDropTarget(false))
+
+    if (!droppedOnId) return
+
+    const latestSd = store.state.sequenceDiagrams.find(s => s.id === sdId)
+    const latestSrc = latestSd?.lifelines.find(l => l.id === srcLLId)
+    if (!latestSd || !latestSrc) return
+
+    const baselineY = latestSd.position.y + SEQ_HEADER_H
+    const newGlobalSlot = Math.ceil((absY - baselineY) / SEQ_MSG_ROW_H)
+
+    const isSelfCall = droppedOnId === srcLLId
+    const msg: SequenceMessage = {
+      id: crypto.randomUUID(),
+      label: 'message',
+      targetLifelineId: isSelfCall ? null : droppedOnId,
+      kind: isSelfCall ? 'self' : 'sync',
+      slotIndex: Math.max(0, newGlobalSlot),
+    }
+    store.updateSequenceDiagram(sdId, {
+      lifelines: latestSd.lifelines.map(l => l.id === srcLLId
+        ? { ...l, messages: [...l.messages, msg] }
+        : l)
+    })
+  }
+
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
+
+function wireSeqFragmentInteraction(r: CombinedFragmentRenderer, frag: CombinedFragment) {
+  wireElementInteraction(
+    r.el, 'seq-fragment', frag.id,
+    () => { const s = r.getRenderedSize(); const c = store.state.combinedFragments.find(f => f.id === frag.id) ?? frag; return { x: c.position.x, y: c.position.y, w: s.w, h: s.h } },
+    'seq-fragment-op',
+    () => (store.state.combinedFragments.find(f => f.id === frag.id) ?? frag).condition,
+    val => store.updateCombinedFragment(frag.id, { condition: val }),
+  )
+}
+
 // ─── Store → renderer sync ────────────────────────────────────────────────────
 
 store.on(ev => {
@@ -735,6 +1332,11 @@ store.on(ev => {
   if (ev.type === 'startstate:remove') { startStateRenderers.get(ev.payload as string)?.el.remove(); startStateRenderers.delete(ev.payload as string) }
   if (ev.type === 'endstate:add')     addEndStateRenderer(ev.payload as EndState)
   if (ev.type === 'endstate:remove')  { endStateRenderers.get(ev.payload as string)?.el.remove(); endStateRenderers.delete(ev.payload as string) }
+  if (ev.type === 'seqdiagram:add')   { addSeqDiagramRenderer(ev.payload as SequenceDiagram); refreshSequenceConnections() }
+  if (ev.type === 'seqdiagram:update') { refreshSequenceConnections(); refreshLifelineAddButtons() }
+  if (ev.type === 'seqdiagram:remove') { seqDiagramRenderers.get(ev.payload as string)?.destroy(); seqDiagramRenderers.delete(ev.payload as string) }
+  if (ev.type === 'seqfragment:add')  addSeqFragmentRenderer(ev.payload as CombinedFragment)
+  if (ev.type === 'seqfragment:remove') { seqFragmentRenderers.get(ev.payload as string)?.destroy(); seqFragmentRenderers.delete(ev.payload as string) }
   if (ev.type === 'connection:add')   { addConnectionRenderer(ev.payload as Connection); refreshConnections() }
   if (ev.type === 'connection:remove') {
     connRenderers.get(ev.payload as string)?.el.remove()
@@ -755,6 +1357,10 @@ store.on(ev => {
   if (['class:update', 'package:update', 'storage:update', 'actor:update', 'queue:update', 'connection:update', 'usecase:update', 'ucsystem:update', 'state:update', 'startstate:update', 'endstate:update'].includes(ev.type)) {
     refreshConnections()
     showPropertiesForSelection()
+  }
+
+  if (['seqfragment:update'].includes(ev.type)) {
+    refreshSequenceConnections()
   }
 
   saveDiagram(store.state)
@@ -864,6 +1470,394 @@ function refreshConnections() {
   }
 }
 
+// ─── Sequence connections overlay ────────────────────────────────────────────
+
+const SVG_NS_MAIN = 'http://www.w3.org/2000/svg'
+
+function renderSeqArrow(
+  container: SVGElement,
+  x1: number, y1: number,
+  x2: number, y2: number,
+  kind: SequenceMessage['kind'],
+) {
+  const goingRight = x2 >= x1
+
+  const shaft = document.createElementNS(SVG_NS_MAIN, 'line')
+  shaft.classList.add('seq-conn-arrow')
+  shaft.setAttribute('x1', String(x1))
+  shaft.setAttribute('y1', String(y1))
+  shaft.setAttribute('x2', String(x2))
+  shaft.setAttribute('y2', String(y2))
+  if (kind === 'async' || kind === 'create' || kind === 'return') {
+    shaft.setAttribute('stroke-dasharray', '4 3')
+  }
+  container.appendChild(shaft)
+
+  // Arrowhead at target end (x2,y2)
+  const ax = x2
+  const ay = y2
+  const dir = goingRight ? 1 : -1
+
+  // return is always open arrowhead
+  if (kind === 'sync') {
+    const poly = document.createElementNS(SVG_NS_MAIN, 'polygon')
+    poly.classList.add('seq-conn-arrow-head')
+    poly.setAttribute('points', `${ax - dir * 8},${ay - 5} ${ax},${ay} ${ax - dir * 8},${ay + 5}`)
+    container.appendChild(poly)
+  } else {
+    const path = document.createElementNS(SVG_NS_MAIN, 'path')
+    path.classList.add('seq-conn-arrow-head', 'open')
+    path.setAttribute('d', `M${ax - dir * 8},${ay - 5} L${ax},${ay} L${ax - dir * 8},${ay + 5}`)
+    container.appendChild(path)
+  }
+}
+
+// Tracks the currently selected inter-lifeline arrow { srcId, msgIdx }
+let selectedSeqArrow: { srcId: string; msgIdx: number } | null = null
+
+function setSelectedSeqArrow(key: { srcId: string; msgIdx: number } | null) {
+  selectedSeqArrow = key
+  // Reflect selection in seqConnLayer visuals
+  seqConnLayer.querySelectorAll<SVGGElement>('[data-src-id]').forEach(g => {
+    const match = key && g.dataset.srcId === key.srcId && Number(g.dataset.msgIdx) === key.msgIdx
+    g.classList.toggle('seq-conn-selected', !!match)
+  })
+}
+
+function refreshSequenceConnections() {
+  while (seqConnLayer.firstChild) seqConnLayer.removeChild(seqConnLayer.firstChild)
+  for (const sd of store.state.sequenceDiagrams ?? []) {
+    const sdR = seqDiagramRenderers.get(sd.id)
+    if (sdR) refreshSeqDiagram(sd, sdR)
+  }
+}
+
+function refreshSeqDiagram(sd: SequenceDiagram, sdR: SequenceDiagramRenderer) {
+  const lifelines = sd.lifelines
+  if (!lifelines.length) return
+
+  const lifelineMap = new Map(lifelines.map(ll => [ll.id, ll]))
+
+  const SLOT_H = SEQ_MSG_ROW_H  // 40px
+
+  // Baseline Y is fixed for the container: sd.position.y + SEQ_HEADER_H
+  const baselineY = sd.position.y + SEQ_HEADER_H
+
+  type MsgEvent = {
+    slotTopY: number
+    absY: number
+    srcId: string
+    tgtId: string | null
+    kind: SequenceMessage['kind']
+    msgIdx: number
+    msg: SequenceMessage
+    globalSlot: number
+  }
+
+  // Assign ephemeral slots to messages lacking explicit slotIndex
+  const sortedLLs = [...lifelines].sort((a, b) => a.position.x - b.position.x)
+  {
+    const allHaveSlotIndex = lifelines.every(ll => ll.messages.every(m => m.slotIndex !== undefined))
+    if (!allHaveSlotIndex) {
+      const maxMsgs = Math.max(...lifelines.map(ll => ll.messages.length), 0)
+      let slot = 0
+      slot = 0
+      for (let round = 0; round < maxMsgs; round++) {
+        for (const ll of sortedLLs) {
+          const msg = ll.messages[round]
+          if (!msg) continue
+          if (msg.slotIndex === undefined) {
+            ;(msg as SequenceMessage & { _ephemeralSlot?: number })._ephemeralSlot = slot++
+          } else {
+            slot = Math.max(slot, msg.slotIndex + 1)
+          }
+        }
+      }
+    }
+  }
+
+  const events: MsgEvent[] = []
+  for (const srcLL of lifelines) {
+    srcLL.messages.forEach((msg, idx) => {
+      const ephemeral = (msg as SequenceMessage & { _ephemeralSlot?: number })._ephemeralSlot
+      const globalSlot = msg.slotIndex ?? ephemeral ?? idx
+      const slotTopY = baselineY + globalSlot * SLOT_H
+      events.push({
+        slotTopY,
+        absY: slotTopY + SLOT_H / 2,
+        srcId: srcLL.id,
+        tgtId: msg.targetLifelineId,
+        kind: msg.kind,
+        msgIdx: idx,
+        msg,
+        globalSlot,
+      })
+    })
+  }
+  events.sort((a, b) => a.slotTopY - b.slotTopY || (lifelineMap.get(a.srcId)?.position.x ?? 0) - (lifelineMap.get(b.srcId)?.position.x ?? 0))
+
+  interface BarState {
+    openY: number | null
+    spans: { yStart: number; yEnd: number }[]
+    lastTouchedSlotTop: number | null
+  }
+
+  const barState = new Map<string, BarState>(
+    lifelines.map(ll => [ll.id, { openY: null, spans: [], lastTouchedSlotTop: null }])
+  )
+
+  function openBar(llId: string, slotTopY: number) {
+    const s = barState.get(llId)
+    if (!s) return
+    if (s.openY === null) s.openY = slotTopY
+    if (s.lastTouchedSlotTop === null || slotTopY > s.lastTouchedSlotTop) s.lastTouchedSlotTop = slotTopY
+  }
+
+  function closeBar(llId: string, closeAbsY: number, slotTopY: number) {
+    const s = barState.get(llId)
+    if (!s) return
+    if (s.openY !== null) {
+      s.spans.push({ yStart: s.openY, yEnd: closeAbsY })
+      s.openY = null
+    }
+    if (s.lastTouchedSlotTop === null || slotTopY > s.lastTouchedSlotTop) s.lastTouchedSlotTop = slotTopY
+  }
+
+  for (const ev of events) {
+    const tgtLL = ev.tgtId ? lifelineMap.get(ev.tgtId) : null
+
+    if (ev.kind === 'self') {
+      // Self-calls keep the bar open — they don't end an active zone
+      openBar(ev.srcId, ev.absY)
+      continue
+    }
+
+    if (ev.kind === 'return') {
+      if (tgtLL) {
+        closeBar(ev.srcId, ev.absY, ev.slotTopY)
+        const ts = barState.get(ev.tgtId!)
+        if (ts && (ts.lastTouchedSlotTop === null || ev.slotTopY > ts.lastTouchedSlotTop)) ts.lastTouchedSlotTop = ev.slotTopY
+      }
+      continue
+    }
+
+    if (!tgtLL) continue
+
+    openBar(ev.srcId, ev.absY)
+    openBar(ev.tgtId!, ev.absY)
+  }
+
+  for (const ll of lifelines) {
+    const s = barState.get(ll.id)!
+    if (s.openY !== null) {
+      const lastY = s.lastTouchedSlotTop ?? s.openY
+      s.spans.push({ yStart: s.openY, yEnd: lastY + SLOT_H })
+      s.openY = null
+    }
+  }
+
+  // Convert abs spans to local (relative to container top, not lifeline), merge, push to renderers
+  for (const ll of lifelines) {
+    const { spans } = barState.get(ll.id)!
+    spans.sort((a, b) => a.yStart - b.yStart)
+    const merged: ActiveSpan[] = []
+    for (const s of spans) {
+      // bars are in absolute Y; ll renderer coords are local to container top (sd.position.y)
+      const localStart = s.yStart - sd.position.y
+      const localEnd   = s.yEnd   - sd.position.y
+      const last = merged[merged.length - 1]
+      if (last && localStart <= last.yEnd + 2) {
+        last.yEnd = Math.max(last.yEnd, localEnd)
+      } else {
+        merged.push({ yStart: localStart, yEnd: localEnd, showPort: false })
+      }
+    }
+    if (merged.length > 0) merged[merged.length - 1].showPort = true
+    sdR.getLifelineRenderer(ll.id)?.updateActiveBars(merged)
+  }
+
+  // Push insert slot Ys to renderers
+  for (const ll of lifelines) {
+    const msgs = ll.messages
+    const msgSlotLocalYs = msgs.map((msg, idx) => {
+      const ephemeral = (msg as SequenceMessage & { _ephemeralSlot?: number })._ephemeralSlot
+      const globalSlot = msg.slotIndex ?? ephemeral ?? idx
+      const absY = baselineY + globalSlot * SLOT_H + SLOT_H / 2
+      // Local Y within the lifeline renderer (relative to container top = sd.position.y + ll.position.y = sd.position.y since ll.position.y=0)
+      return absY - sd.position.y
+    })
+
+    sdR.getLifelineRenderer(ll.id)?.setMsgLocalYs(msgSlotLocalYs)
+
+    // Collect ALL events touching this lifeline (as source or target) for slot placement
+    const touchingYs = events
+      .filter(ev => ev.srcId === ll.id || ev.tgtId === ll.id)
+      .map(ev => ev.absY - sd.position.y)
+    const uniqueYs = [...new Set(touchingYs)].sort((a, b) => a - b)
+
+    const slotYs: number[] = []
+    if (uniqueYs.length === 0) {
+      slotYs.push(SEQ_HEADER_H + SLOT_H / 2)
+    } else {
+      slotYs.push(SEQ_HEADER_H + (uniqueYs[0] - SEQ_HEADER_H) / 2)
+      for (let i = 1; i < uniqueYs.length; i++) {
+        slotYs.push((uniqueYs[i - 1] + uniqueYs[i]) / 2)
+      }
+      slotYs.push(uniqueYs[uniqueYs.length - 1] + SLOT_H / 2)
+    }
+    sdR.getLifelineRenderer(ll.id)?.updateInsertSlots(slotYs)
+  }
+
+  // Compute bounding box and update sd.size
+  {
+    let maxW = 0
+    let maxH = 0
+    for (const ll of lifelines) {
+      const llR = sdR.getLifelineRenderer(ll.id)
+      const { w, h } = llR?.getRenderedSize() ?? { w: 140, h: 80 }
+      maxW = Math.max(maxW, ll.position.x + w)
+      maxH = Math.max(maxH, h)
+    }
+    // Store updated size on the container so drag/resize hitboxes are correct
+    if (maxW !== sd.size.w || maxH !== sd.size.h) {
+      // Silent update — don't re-emit seqdiagram:update (would recurse)
+      ;(sd as SequenceDiagram).size = { w: maxW, h: maxH }
+      sdR.update(sd)
+    }
+    // Extend all lifeline spines to the diagram-wide max height
+    for (const ll of lifelines) {
+      sdR.getLifelineRenderer(ll.id)?.setSpineBottom(maxH)
+    }
+  }
+
+  // Draw inter-lifeline arrows (absolute canvas coords)
+  for (const ev of events) {
+    if (ev.kind === 'self' || !ev.tgtId) continue
+    const srcLL = lifelineMap.get(ev.srcId)
+    const tgtLL = lifelineMap.get(ev.tgtId)
+    if (!srcLL || !tgtLL) continue
+    const srcR = sdR.getLifelineRenderer(srcLL.id)
+    const tgtR = sdR.getLifelineRenderer(tgtLL.id)
+    if (!srcR || !tgtR) continue
+
+    const absY = ev.absY
+    const srcSpineX = srcR.getSpineX()
+    const tgtSpineX = tgtR.getSpineX()
+    const barHalf   = srcR.getBarHalfW()
+
+    // Local Y within lifeline renderer = absY - sd.position.y (since ll.position.y = 0)
+    const srcLocalY = absY - sd.position.y
+    const tgtLocalY = absY - sd.position.y
+    const isActive = (llId: string, localY: number) =>
+      (barState.get(llId)?.spans ?? []).some(s => localY >= s.yStart - 1 && localY <= s.yEnd + 1)
+
+    const srcActive = isActive(srcLL.id, srcLocalY)
+    const tgtActive = isActive(tgtLL.id, tgtLocalY)
+
+    let finalX1: number, finalX2: number
+    if (ev.kind === 'return') {
+      finalX1 = sd.position.x + srcLL.position.x + srcSpineX - (srcActive ? barHalf : 0)
+      finalX2 = sd.position.x + tgtLL.position.x + tgtSpineX + (tgtActive ? barHalf : 0)
+    } else {
+      finalX1 = sd.position.x + srcLL.position.x + srcSpineX + (srcActive ? barHalf : 0)
+      finalX2 = sd.position.x + tgtLL.position.x + tgtSpineX - (tgtActive ? barHalf : 0)
+    }
+
+    const g = document.createElementNS(SVG_NS_MAIN, 'g')
+    g.classList.add('seq-conn-group')
+    g.dataset.srcId  = srcLL.id
+    g.dataset.sdId   = sd.id
+    g.dataset.msgIdx = String(ev.msgIdx)
+    if (selectedSeqArrow?.srcId === srcLL.id && selectedSeqArrow.msgIdx === ev.msgIdx) {
+      g.classList.add('seq-conn-selected')
+    }
+
+    const hit = document.createElementNS(SVG_NS_MAIN, 'line')
+    hit.setAttribute('x1', String(finalX1)); hit.setAttribute('y1', String(absY))
+    hit.setAttribute('x2', String(finalX2)); hit.setAttribute('y2', String(absY))
+    hit.setAttribute('stroke', 'transparent')
+    hit.setAttribute('stroke-width', '12')
+    hit.style.cursor = 'pointer'
+    g.appendChild(hit)
+
+    renderSeqArrow(g, finalX1, absY, finalX2, absY, ev.kind)
+
+    if (ev.msg.label) {
+      const labelEl = document.createElementNS(SVG_NS_MAIN, 'text')
+      labelEl.classList.add('seq-conn-label')
+      labelEl.textContent = ev.msg.label
+      labelEl.setAttribute('x', String((finalX1 + finalX2) / 2))
+      labelEl.setAttribute('y', String(absY - 4))
+      labelEl.setAttribute('text-anchor', 'middle')
+      g.appendChild(labelEl)
+    }
+
+    seqConnLayer.appendChild(g)
+
+    g.addEventListener('click', (e) => {
+      e.stopPropagation()
+      setSelectedSeqArrow({ srcId: srcLL.id, msgIdx: ev.msgIdx })
+
+      const latestSd = store.state.sequenceDiagrams.find(s => s.id === sd.id)
+      const latestSrc = latestSd?.lifelines.find(l => l.id === srcLL.id)
+      if (!latestSd || !latestSrc) return
+      const latestMsg = latestSrc.messages[ev.msgIdx]
+      if (!latestMsg) return
+      const otherLifelines = latestSd.lifelines
+        .filter(l => l.id !== srcLL.id)
+        .map(l => ({ id: l.id, name: l.name }))
+
+      showMsgPopover(
+        e.clientX, e.clientY,
+        latestMsg,
+        otherLifelines,
+        (patch) => {
+          const latestSd2 = store.state.sequenceDiagrams.find(s => s.id === sd.id)
+          const latestLL = latestSd2?.lifelines.find(l => l.id === srcLL.id)
+          if (!latestSd2 || !latestLL) return
+          const msgs2 = [...latestLL.messages]
+          msgs2[ev.msgIdx] = { ...msgs2[ev.msgIdx], ...patch }
+          store.updateSequenceDiagram(sd.id, {
+            lifelines: latestSd2.lifelines.map(l => l.id === srcLL.id ? { ...l, messages: msgs2 } : l)
+          })
+        },
+        () => {
+          const latestSd2 = store.state.sequenceDiagrams.find(s => s.id === sd.id)
+          const latestLL = latestSd2?.lifelines.find(l => l.id === srcLL.id)
+          if (!latestSd2 || !latestLL) return
+          store.updateSequenceDiagram(sd.id, {
+            lifelines: latestSd2.lifelines.map(l => l.id === srcLL.id
+              ? { ...l, messages: l.messages.filter((_, i) => i !== ev.msgIdx) }
+              : l)
+          })
+          setSelectedSeqArrow(null)
+        },
+        () => setSelectedSeqArrow(null),
+      )
+    })
+
+    // Double-click on arrow label → inline rename
+    g.addEventListener('dblclick', (e) => {
+      e.stopPropagation()
+      const labelEl = g.querySelector<SVGTextElement>('.seq-conn-label')
+      if (!labelEl) return
+      const latestSd = store.state.sequenceDiagrams.find(s => s.id === sd.id)
+      const latestSrc = latestSd?.lifelines.find(l => l.id === srcLL.id)
+      if (!latestSd || !latestSrc) return
+      inlineEditor.edit(labelEl, latestSrc.messages[ev.msgIdx]?.label ?? '', (val) => {
+        const sd2 = store.state.sequenceDiagrams.find(s => s.id === sd.id)
+        const ll2 = sd2?.lifelines.find(l => l.id === srcLL.id)
+        if (!sd2 || !ll2) return
+        const msgs = [...ll2.messages]
+        msgs[ev.msgIdx] = { ...msgs[ev.msgIdx], label: val }
+        store.updateSequenceDiagram(sd.id, {
+          lifelines: sd2.lifelines.map(l => l.id === srcLL.id ? { ...l, messages: msgs } : l)
+        })
+      })
+    })
+  }
+}
+
 // ─── Selection → renderer highlight ──────────────────────────────────────────
 
 selection.onChange(items => {
@@ -878,7 +1872,19 @@ selection.onChange(items => {
   stateRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
   startStateRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
   endStateRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
+  seqDiagramRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
+  seqFragmentRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
   connRenderers.forEach((r, id) => r.setSelected(ids.has(id)))
+
+  // Show + buttons when exactly one seq-diagram is selected
+  const seqItem = items.length === 1 && items[0].kind === 'seq-diagram' ? items[0] : null
+  if (seqItem) {
+    const sd = store.state.sequenceDiagrams.find(s => s.id === seqItem.id)
+    if (sd) showLifelineAddButtons(sd)
+    else hideLifelineAddButtons()
+  } else {
+    hideLifelineAddButtons()
+  }
 
   showPropertiesForSelection()
 })
@@ -941,6 +1947,14 @@ svg.addEventListener('dblclick', e => {
     store.addEndState(createEndState({ position: { x: pt.x - 18, y: pt.y - 18 } }))
     return
   }
+  if (tool === 'seq-diagram') {
+    store.addSequenceDiagram(createSequenceDiagram(pt.x - 150, pt.y - 20))
+    return
+  }
+  if (tool === 'seq-fragment') {
+    store.addCombinedFragment(createCombinedFragment(pt.x - 100, pt.y - 60))
+    return
+  }
 })
 
 // ─── Rubber-band selection ────────────────────────────────────────────────────
@@ -963,6 +1977,7 @@ svg.addEventListener('mousedown', e => {
   dismissConnPopover = null
   hideElementPropertiesPanel()
   selection.clear()
+  setSelectedSeqArrow(null)
 
   // Only start rubber-band in select mode
   if (toolbar.activeTool !== 'select') return
@@ -1011,6 +2026,8 @@ svg.addEventListener('mousemove', e => {
   stateRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
   startStateRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
   endStateRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
+  seqDiagramRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
+  seqFragmentRenderers.forEach((r, id) => allRendererEls.set(id, r.el))
 
   // No resize cursor when multiple elements are selected
   if (selection.items.length > 1) {
@@ -1030,6 +2047,8 @@ svg.addEventListener('mousemove', e => {
     ...(d.states ?? []).map(s => { const rs = stateRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'state' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
     ...(d.startStates ?? []).map(s => { const rs = startStateRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'start-state' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
     ...(d.endStates ?? []).map(s => { const rs = endStateRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'end-state' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
+    ...(d.sequenceDiagrams ?? []).map(s => { const rs = seqDiagramRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'seq-diagram' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
+    ...(d.combinedFragments ?? []).map(f => { const rs = seqFragmentRenderers.get(f.id)?.getRenderedSize() ?? f.size; return { kind: 'seq-fragment' as const, id: f.id, x: f.position.x, y: f.position.y, w: rs.w, h: rs.h } }),
   ]
 
   let hit = resize.hitTest(e, allElements)
@@ -1068,6 +2087,8 @@ window.addEventListener('mouseup', e => {
         ...(d.states ?? []).map(s => { const rs = stateRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'state' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
         ...(d.startStates ?? []).map(s => { const rs = startStateRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'start-state' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
         ...(d.endStates ?? []).map(s => { const rs = endStateRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'end-state' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
+        ...(d.sequenceDiagrams ?? []).map(s => { const rs = seqDiagramRenderers.get(s.id)?.getRenderedSize() ?? s.size; return { kind: 'seq-diagram' as const, id: s.id, x: s.position.x, y: s.position.y, w: rs.w, h: rs.h } }),
+        ...(d.combinedFragments ?? []).map(f => { const rs = seqFragmentRenderers.get(f.id)?.getRenderedSize() ?? f.size; return { kind: 'seq-fragment' as const, id: f.id, x: f.position.x, y: f.position.y, w: rs.w, h: rs.h } }),
       ]
       for (const el of allEls) {
         // Select elements whose bounds overlap the rubber-band rect
@@ -1104,6 +2125,8 @@ document.addEventListener('keydown', e => {
     if (item.kind === 'state')       store.removeState(item.id)
     if (item.kind === 'start-state') store.removeStartState(item.id)
     if (item.kind === 'end-state')   store.removeEndState(item.id)
+    if (item.kind === 'seq-diagram') store.removeSequenceDiagram(item.id)
+    if (item.kind === 'seq-fragment') store.removeCombinedFragment(item.id)
     if (item.kind === 'connection') store.removeConnection(item.id)
   })
   selection.clear()
@@ -1122,6 +2145,8 @@ type ClipboardEntry =
   | { kind: 'state';       data: State }
   | { kind: 'start-state'; data: StartState }
   | { kind: 'end-state';   data: EndState }
+  | { kind: 'seq-diagram';  data: SequenceDiagram }
+  | { kind: 'seq-fragment'; data: CombinedFragment }
 
 // Simple clipboard — array of deep-cloned entity snapshots (no connections)
 let clipboard: ClipboardEntry[] = []
@@ -1167,6 +2192,12 @@ document.addEventListener('keydown', e => {
       } else if (item.kind === 'end-state') {
         const el = d.endStates?.find(s => s.id === item.id)
         if (el) clipboard.push({ kind: 'end-state', data: JSON.parse(JSON.stringify(el)) })
+      } else if (item.kind === 'seq-diagram') {
+        const el = d.sequenceDiagrams?.find(s => s.id === item.id)
+        if (el) clipboard.push({ kind: 'seq-diagram', data: JSON.parse(JSON.stringify(el)) })
+      } else if (item.kind === 'seq-fragment') {
+        const el = d.combinedFragments?.find(f => f.id === item.id)
+        if (el) clipboard.push({ kind: 'seq-fragment', data: JSON.parse(JSON.stringify(el)) })
       }
       // connections are intentionally excluded
     }
@@ -1222,6 +2253,14 @@ document.addEventListener('keydown', e => {
         const copy = { ...entry.data, id: newId, position: pos }
         store.addEndState(copy)
         selection.select({ kind: 'end-state', id: newId }, true)
+      } else if (entry.kind === 'seq-diagram') {
+        const copy = { ...entry.data, id: newId, position: pos }
+        store.addSequenceDiagram(copy)
+        selection.select({ kind: 'seq-diagram', id: newId }, true)
+      } else if (entry.kind === 'seq-fragment') {
+        const copy = { ...entry.data, id: newId, position: pos }
+        store.addCombinedFragment(copy)
+        selection.select({ kind: 'seq-fragment', id: newId }, true)
       }
     }
     // Shift clipboard so repeated pastes cascade rather than stack
@@ -1337,6 +2376,7 @@ function applyViewport() {
   const { x, y, zoom } = store.state.viewport
   viewGroup.setAttribute('transform', `translate(${x},${y}) scale(${zoom})`)
   updateZoomLabel()
+  refreshLifelineAddButtons()
 }
 
 // ─── Build initial diagram ────────────────────────────────────────────────────
@@ -1350,6 +2390,8 @@ function rebuildAll() {
   ucLayer.innerHTML = ''
   ucSystemLayer.innerHTML = ''
   stateLayer.innerHTML = ''
+  seqLayer.innerHTML = ''
+  seqConnLayer.innerHTML = ''
   connLayer.innerHTML = ''
   classRenderers.clear()
   pkgRenderers.clear()
@@ -1361,6 +2403,8 @@ function rebuildAll() {
   stateRenderers.clear()
   startStateRenderers.clear()
   endStateRenderers.clear()
+  seqDiagramRenderers.clear()
+  seqFragmentRenderers.clear()
   connRenderers.clear()
 
   const d = store.state
@@ -1373,9 +2417,12 @@ function rebuildAll() {
   d.states?.forEach(addStateRenderer)
   d.startStates?.forEach(addStartStateRenderer)
   d.endStates?.forEach(addEndStateRenderer)
+  d.sequenceDiagrams?.forEach(addSeqDiagramRenderer)
+  d.combinedFragments?.forEach(addSeqFragmentRenderer)
   d.classes.forEach(addClassRenderer)
   d.connections.forEach(addConnectionRenderer)
   refreshConnections()
+  refreshSequenceConnections()
   applyViewport()
 }
 

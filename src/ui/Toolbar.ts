@@ -1,7 +1,7 @@
 import type { ThemeFlavour } from '../themes/catppuccin.ts'
 import { applyTheme } from '../themes/catppuccin.ts'
 
-export type Tool = 'select' | 'pan' | 'class' | 'package' | 'storage' | 'agent' | 'human-agent' | 'queue' | 'use-case' | 'uc-actor' | 'uc-system' | 'state' | 'start-state' | 'end-state'
+export type Tool = 'select' | 'pan' | 'class' | 'package' | 'storage' | 'agent' | 'human-agent' | 'queue' | 'use-case' | 'uc-actor' | 'uc-system' | 'state' | 'start-state' | 'end-state' | 'seq-diagram' | 'seq-fragment'
 
 type ToolChangeListener = (tool: Tool) => void
 
@@ -28,6 +28,8 @@ const ICONS: Record<Tool, string> = {
   'state':       `<svg viewBox="0 0 24 24"><rect fill="none" stroke="currentColor" stroke-width="2" x="3" y="8" width="18" height="8" rx="4"/></svg>`,
   'start-state': `<svg viewBox="0 0 24 24"><circle fill="currentColor" cx="12" cy="12" r="6"/></svg>`,
   'end-state':   `<svg viewBox="0 0 24 24"><circle fill="none" stroke="currentColor" stroke-width="2" cx="12" cy="12" r="8"/><circle fill="currentColor" cx="12" cy="12" r="5"/></svg>`,
+  'seq-diagram': `<svg viewBox="0 0 24 24"><rect fill="none" stroke="currentColor" stroke-width="1.8" x="5" y="3" width="14" height="8" rx="1.5"/><line stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2" x1="12" y1="11" x2="12" y2="21"/></svg>`,
+  'seq-fragment':`<svg viewBox="0 0 24 24"><rect fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="4 2" x="3" y="3" width="18" height="18"/><rect fill="currentColor" x="3" y="3" width="7" height="6" rx="0"/></svg>`,
 }
 
 const TOOL_LABELS: Record<Tool, string> = {
@@ -45,6 +47,8 @@ const TOOL_LABELS: Record<Tool, string> = {
   'state':       'Add State (T)',
   'start-state': 'Add Start State',
   'end-state':   'Add End State',
+  'seq-diagram': 'Add Sequence Diagram (L)',
+  'seq-fragment':'Add Combined Fragment',
 }
 
 interface ToolGroup {
@@ -83,6 +87,12 @@ const TOOL_GROUPS: ToolGroup[] = [
     label: 'TAM State Diagram',
     shortLabel: 'SD',
     tools: ['state', 'start-state', 'end-state'],
+    defaultOpen: false,
+  },
+  {
+    label: 'TAM Sequence Diagram',
+    shortLabel: 'SQ',
+    tools: ['seq-diagram', 'seq-fragment'],
     defaultOpen: false,
   },
 ]
@@ -203,6 +213,7 @@ export class Toolbar {
       if (e.key === 'q' || e.key === 'Q') this.setTool('queue')
       if (e.key === 'e' || e.key === 'E') this.setTool('use-case')
       if (e.key === 't' || e.key === 'T') this.setTool('state')
+      if (e.key === 'l' || e.key === 'L') this.setTool('seq-diagram')
     })
   }
 }

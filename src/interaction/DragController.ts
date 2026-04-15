@@ -122,6 +122,10 @@ export class DragController {
     for (const st of s.storages) push(st.id, st.position, st.size)
     for (const a of s.actors)    push(a.id, a.position, a.size)
     for (const q of s.queues)    push(q.id, q.position, q.size)
+    // seq-diagrams snap by their bounding box
+    for (const sd of (s.sequenceDiagrams ?? [])) {
+      if (!excludeIds.has(sd.id)) rects.push({ x: sd.position.x, y: sd.position.y, w: sd.size.w, h: sd.size.h })
+    }
     return rects
   }
 }

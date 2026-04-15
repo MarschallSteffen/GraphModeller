@@ -9,6 +9,8 @@ import type { UCSystem } from './UCSystem.ts'
 import type { State } from './State.ts'
 import type { StartState } from './StartState.ts'
 import type { EndState } from './EndState.ts'
+import type { CombinedFragment } from './CombinedFragment.ts'
+import type { SequenceDiagram } from './SequenceDiagram.ts'
 
 export interface Viewport {
   x: number
@@ -29,6 +31,8 @@ export interface Diagram {
   states: State[]
   startStates: StartState[]
   endStates: EndState[]
+  sequenceDiagrams: SequenceDiagram[]
+  combinedFragments: CombinedFragment[]
   connections: Connection[]
   viewport: Viewport
 }
@@ -47,6 +51,8 @@ export function createDiagram(name = 'Untitled'): Diagram {
     states: [],
     startStates: [],
     endStates: [],
+    sequenceDiagrams: [],
+    combinedFragments: [],
     connections: [],
     viewport: { x: 0, y: 0, zoom: 1 },
   }

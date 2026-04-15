@@ -810,3 +810,198 @@ body {
 .sd-end-state.selected .sd-end-inner {
   fill: var(--ctp-lavender);
 }
+
+/* ── Sequence Diagram ────────────────────────────────────────────────── */
+
+.seq-lifeline { cursor: move; pointer-events: bounding-box; }
+.seq-header-bg {
+  fill: var(--ctp-surface0);
+  stroke: var(--ctp-overlay1);
+  stroke-width: 1.5;
+  cursor: grab;
+}
+.seq-header-bg:active { cursor: grabbing; }
+.seq-header-name {
+  fill: var(--ctp-text);
+  font-size: 13px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+.seq-spine {
+  stroke: var(--ctp-overlay1);
+  stroke-dasharray: 6 4;
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+.seq-msg-arrow {
+  stroke: var(--ctp-text);
+  stroke-width: 1.5;
+  fill: none;
+}
+.seq-msg-arrow-head {
+  stroke: var(--ctp-text);
+  stroke-width: 1.5;
+  fill: var(--ctp-text);
+}
+.seq-msg-row:has(.seq-msg-arrow[stroke-dasharray]) .seq-msg-arrow-head {
+  fill: none;
+}
+.seq-msg-label {
+  fill: var(--ctp-subtext0);
+  font-size: 11px;
+  pointer-events: none;
+}
+.add-msg-btn {
+  fill: var(--ctp-green);
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.seq-lifeline:hover .add-msg-btn { opacity: 1; }
+.seq-lifeline.selected .seq-header-bg {
+  stroke: var(--ctp-lavender);
+  stroke-width: 2;
+}
+.seq-msg-row { cursor: pointer; }
+.seq-msg-row:hover .seq-msg-label { fill: var(--ctp-text); }
+
+/* Active area */
+.seq-active-area {
+  fill: var(--ctp-surface1);
+  stroke: var(--ctp-overlay1);
+  stroke-width: 1;
+}
+
+/* Combined Fragment */
+.seq-fragment { cursor: move; }
+.seq-fragment-bg {
+  fill: none;
+  stroke: var(--ctp-overlay1);
+  stroke-dasharray: 6 4;
+  stroke-width: 1.5;
+}
+.seq-fragment-tab {
+  fill: var(--ctp-surface0);
+  stroke: var(--ctp-overlay1);
+  stroke-width: 1.5;
+}
+.seq-fragment-op {
+  fill: var(--ctp-text);
+  font-size: 12px;
+  font-style: italic;
+  pointer-events: none;
+}
+.seq-fragment-cond {
+  fill: var(--ctp-subtext0);
+  font-size: 11px;
+  pointer-events: none;
+}
+.seq-fragment.selected .seq-fragment-bg {
+  stroke: var(--ctp-lavender);
+}
+
+/* Inter-lifeline arrows rendered in seqConnLayer */
+.seq-conn-arrow {
+  stroke: var(--ctp-text);
+  stroke-width: 1.5;
+  fill: none;
+}
+.seq-conn-arrow-head {
+  stroke: var(--ctp-text);
+  stroke-width: 1.5;
+  fill: var(--ctp-text);
+}
+.seq-conn-arrow-head.open {
+  fill: none;
+}
+
+/* Selectable arrow group */
+.seq-conn-group { cursor: pointer; }
+.seq-conn-group:hover .seq-conn-arrow { stroke: var(--ctp-lavender); }
+.seq-conn-group:hover .seq-conn-arrow-head { stroke: var(--ctp-lavender); fill: var(--ctp-lavender); }
+.seq-conn-group.seq-conn-selected .seq-conn-arrow { stroke: var(--ctp-blue); }
+.seq-conn-group.seq-conn-selected .seq-conn-arrow-head { stroke: var(--ctp-blue); fill: var(--ctp-blue); }
+.seq-conn-group:hover .seq-conn-arrow-head.open,
+.seq-conn-group.seq-conn-selected .seq-conn-arrow-head.open { fill: none; }
+
+/* Drop-slot indicator: horizontal tick on spine during drag */
+.seq-drop-slot {
+  stroke: var(--ctp-lavender);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+/* Unconnected message stub: slot indicator tick at arrow tip */
+.seq-slot-indicator {
+  stroke: var(--ctp-lavender);
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: 0.7;
+}
+
+/* Port circle at bottom of activation bar — drag to create next message */
+.seq-bar-port {
+  fill: var(--ctp-surface0);
+  stroke: var(--ctp-lavender);
+  stroke-width: 1.5;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.seq-lifeline:hover .seq-bar-port,
+.seq-lifeline.selected .seq-bar-port {
+  opacity: 1;
+}
+
+/* Mid-slot insert port circles — shown on lifeline hover to drag a new connection from that slot */
+.seq-insert-slot {
+  fill: var(--ctp-surface0);
+  stroke: var(--ctp-lavender);
+  stroke-width: 1.5;
+  opacity: 0;
+  pointer-events: all;
+  transition: opacity 0.1s;
+}
+/* Empty lifeline: always show the first connection point */
+.seq-insert-slot.seq-insert-slot-empty { opacity: 0.7; }
+.seq-lifeline:hover .seq-insert-slot { opacity: 0.6; }
+.seq-insert-slot:hover { opacity: 1 !important; }
+
+/* Label for inter-lifeline arrows rendered in seqConnLayer */
+.seq-conn-label {
+  fill: var(--ctp-subtext0);
+  font-size: 11px;
+  font-family: inherit;
+  pointer-events: none;
+  user-select: none;
+}
+.seq-conn-group:hover .seq-conn-label { fill: var(--ctp-lavender); }
+.seq-conn-group.seq-conn-selected .seq-conn-label { fill: var(--ctp-blue); }
+
+/* ── Sequence Diagram Container ──────────────────────────────────────── */
+.seq-diagram-bg { fill: transparent; pointer-events: all; }
+.seq-diagram.selected .seq-diagram-bg {
+  stroke: var(--ctp-blue);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+
+.lifeline-add-btn {
+  position: fixed;
+  z-index: 1000;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--ctp-surface1);
+  border: 1px solid var(--ctp-lavender);
+  color: var(--ctp-lavender);
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+}
+.lifeline-add-btn:hover { background: var(--ctp-lavender); color: var(--ctp-base); }

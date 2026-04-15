@@ -11,6 +11,8 @@ import type { UCSystem } from '../entities/UCSystem.ts'
 import type { State } from '../entities/State.ts'
 import type { StartState } from '../entities/StartState.ts'
 import type { EndState } from '../entities/EndState.ts'
+import type { SequenceDiagram } from '../entities/SequenceDiagram.ts'
+import type { CombinedFragment } from '../entities/CombinedFragment.ts'
 import type { ElementKind } from '../types.ts'
 import type { Point, Size } from '../entities/UmlClass.ts'
 
@@ -25,6 +27,8 @@ export type StoreEventType =
   | 'state:add' | 'state:update' | 'state:remove'
   | 'startstate:add' | 'startstate:update' | 'startstate:remove'
   | 'endstate:add' | 'endstate:update' | 'endstate:remove'
+  | 'seqdiagram:add' | 'seqdiagram:update' | 'seqdiagram:remove'
+  | 'seqfragment:add' | 'seqfragment:update' | 'seqfragment:remove'
   | 'connection:add' | 'connection:update' | 'connection:remove'
   | 'viewport:update' | 'diagram:load'
 
@@ -49,6 +53,24 @@ export class DiagramStore {
     if (!this.diagram.states)      this.diagram.states      = []
     if (!this.diagram.startStates) this.diagram.startStates = []
     if (!this.diagram.endStates)   this.diagram.endStates   = []
+    if (!this.diagram.sequenceDiagrams) {
+      this.diagram.sequenceDiagrams = []
+      // Migrate legacy flat sequenceLifelines into a single SequenceDiagram container
+      const old = (this.diagram as any).sequenceLifelines as import('../entities/SequenceLifeline.ts').SequenceLifeline[] | undefined
+      if (old?.length) {
+        const minX = Math.min(...old.map(l => l.position.x))
+        const minY = Math.min(...old.map(l => l.position.y))
+        this.diagram.sequenceDiagrams.push({
+          id: crypto.randomUUID(),
+          elementType: 'seq-diagram',
+          position: { x: minX, y: minY },
+          size: { w: 0, h: 0 },
+          lifelines: old.map(ll => ({ ...ll, position: { x: ll.position.x - minX, y: 0 } })),
+        })
+      }
+      delete (this.diagram as any).sequenceLifelines
+    }
+    if (!this.diagram.combinedFragments) this.diagram.combinedFragments = []
   }
 
   get state(): Readonly<Diagram> {
@@ -77,6 +99,8 @@ export class DiagramStore {
       case 'state':       return this.diagram.states.find(s => s.id === id)
       case 'start-state': return this.diagram.startStates.find(s => s.id === id)
       case 'end-state':   return this.diagram.endStates.find(s => s.id === id)
+      case 'seq-diagram': return this.diagram.sequenceDiagrams.find(sd => sd.id === id)
+      case 'seq-fragment': return this.diagram.combinedFragments.find(f => f.id === id)
     }
   }
 
@@ -96,6 +120,8 @@ export class DiagramStore {
       case 'state':       this.updateState(id, patch); break
       case 'start-state': this.updateStartState(id, patch); break
       case 'end-state':   this.updateEndState(id, patch); break
+      case 'seq-diagram': this.updateSequenceDiagram(id, patch); break
+      case 'seq-fragment': this.updateCombinedFragment(id, patch); break
     }
   }
 
@@ -386,6 +412,44 @@ export class DiagramStore {
     this.emit('endstate:remove', id)
   }
 
+  // ── Sequence Diagrams ─────────────────────────────────────────────────────
+
+  addSequenceDiagram(sd: SequenceDiagram) {
+    this.diagram.sequenceDiagrams.push(sd)
+    this.emit('seqdiagram:add', sd)
+  }
+
+  updateSequenceDiagram(id: string, patch: Partial<SequenceDiagram>) {
+    const sd = this.diagram.sequenceDiagrams.find(s => s.id === id)
+    if (!sd) return
+    Object.assign(sd, patch)
+    this.emit('seqdiagram:update', sd)
+  }
+
+  removeSequenceDiagram(id: string) {
+    this.diagram.sequenceDiagrams = this.diagram.sequenceDiagrams.filter(s => s.id !== id)
+    this.emit('seqdiagram:remove', id)
+  }
+
+  // ── Combined Fragments ────────────────────────────────────────────────────────
+
+  addCombinedFragment(frag: CombinedFragment) {
+    this.diagram.combinedFragments.push(frag)
+    this.emit('seqfragment:add', frag)
+  }
+
+  updateCombinedFragment(id: string, patch: Partial<CombinedFragment>) {
+    const frag = this.diagram.combinedFragments.find(f => f.id === id)
+    if (!frag) return
+    Object.assign(frag, patch)
+    this.emit('seqfragment:update', frag)
+  }
+
+  removeCombinedFragment(id: string) {
+    this.diagram.combinedFragments = this.diagram.combinedFragments.filter(f => f.id !== id)
+    this.emit('seqfragment:remove', id)
+  }
+
   // ── Load ──────────────────────────────────────────────────────────────────
 
   load(diagram: Diagram) {
@@ -397,6 +461,24 @@ export class DiagramStore {
     if (!this.diagram.states)      this.diagram.states      = []
     if (!this.diagram.startStates) this.diagram.startStates = []
     if (!this.diagram.endStates)   this.diagram.endStates   = []
+    if (!this.diagram.sequenceDiagrams) {
+      this.diagram.sequenceDiagrams = []
+      // Migrate legacy flat sequenceLifelines into a single SequenceDiagram container
+      const old = (this.diagram as any).sequenceLifelines as import('../entities/SequenceLifeline.ts').SequenceLifeline[] | undefined
+      if (old?.length) {
+        const minX = Math.min(...old.map(l => l.position.x))
+        const minY = Math.min(...old.map(l => l.position.y))
+        this.diagram.sequenceDiagrams.push({
+          id: crypto.randomUUID(),
+          elementType: 'seq-diagram',
+          position: { x: minX, y: minY },
+          size: { w: 0, h: 0 },
+          lifelines: old.map(ll => ({ ...ll, position: { x: ll.position.x - minX, y: 0 } })),
+        })
+      }
+      delete (this.diagram as any).sequenceLifelines
+    }
+    if (!this.diagram.combinedFragments) this.diagram.combinedFragments = []
     this.emit('diagram:load', diagram)
   }
 }
