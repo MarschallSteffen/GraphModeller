@@ -154,7 +154,9 @@ export class ConnectionController {
       () => {},
       srcConfig,
       tgtConfig,
-      undefined,
+      () => {
+        this.store.updateConnection(conn.id, { source: { ...conn.target }, target: { ...conn.source } })
+      },
       { type: defaultType, srcMult: '', tgtMult: '' },
     )
   }
