@@ -21,7 +21,7 @@ import { LATTE } from '../themes/catppuccin.ts'
 
 // ─── JSON persistence ────────────────────────────────────────────────────────
 
-const LS_JSON = 'diagrams-tool:diagram'
+const LS_JSON = 'archetype:diagram'
 
 /** Active file handle for continuous autosave. Null = no file open. */
 let activeFileHandle: FileSystemFileHandle | null = null

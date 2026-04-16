@@ -50,7 +50,7 @@ npm run lint         # ESLint
 - **Vitest** for unit tests
 
 ### Persistence
-- **localStorage** auto-save on every mutation — key `diagrams-tool:diagram`
+- **localStorage** auto-save on every mutation — key `archetype:diagram`
 - Format: plain `JSON.stringify(diagram)` of the full `Diagram` object
 - File System Access API for Save/Save As with autosave to open file handle
 - PNG export renders SVG to canvas with Latte (light) theme

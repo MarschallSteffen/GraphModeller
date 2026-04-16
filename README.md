@@ -1,10 +1,10 @@
-# Graph Modeller
+# Archetype
 
 **Disclaimer:** _this tool is completely vibe coded_ 
 
 A browser-only multi-diagram modeller built with Vite and vanilla TypeScript. No backend, no framework — everything runs in the browser and persists to localStorage or a local file.
 
-**[Try it live on GitHub Pages](https://marschallsteffen.github.io/GraphModeller/)**
+**[Try it live on GitHub Pages](https://marschallsteffen.github.io/Archetype/)**
 
 ## Diagram Types
 

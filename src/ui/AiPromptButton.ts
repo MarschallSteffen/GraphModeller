@@ -1,4 +1,4 @@
-const PROMPT = `You are generating a diagram file for the "Diagrams Tool" — a browser-based multi-diagram modeller.
+const PROMPT = `You are generating a diagram file for "Archetype" — a browser-based multi-diagram modeller.
 
 Output a single valid JSON object. Do not include any explanation, markdown fences, or comments.
 
