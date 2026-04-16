@@ -270,8 +270,8 @@
       "id": "uca-user",
       "name": "User",
       "position": {
-        "x": 1403.9278259277344,
-        "y": 1443.1011352539062
+        "x": 1460.2817077636719,
+        "y": 1405.5317993164062
       },
       "size": {
         "w": 80,
@@ -297,8 +297,8 @@
       "id": "uc-create",
       "name": "Create Element",
       "position": {
-        "x": 1709.4944763183594,
-        "y": 1301.015625
+        "x": 1765.8483581542969,
+        "y": 1263.4462890625
       },
       "size": {
         "w": 160,
@@ -310,8 +310,8 @@
       "id": "uc-connect",
       "name": "Connect Elements",
       "position": {
-        "x": 1709.4944763183594,
-        "y": 1389.9295654296875
+        "x": 1765.8483581542969,
+        "y": 1352.3602294921875
       },
       "size": {
         "w": 160,
@@ -323,8 +323,8 @@
       "id": "uc-edit",
       "name": "Edit Properties",
       "position": {
-        "x": 2126.571746826172,
-        "y": 1151.7989501953125
+        "x": 2182.9256286621094,
+        "y": 1114.2296142578125
       },
       "size": {
         "w": 160,
@@ -336,8 +336,8 @@
       "id": "uc-select",
       "name": "Select / Move",
       "position": {
-        "x": 1709.4944763183594,
-        "y": 1111.4171142578125
+        "x": 1765.8483581542969,
+        "y": 1073.8477783203125
       },
       "size": {
         "w": 160,
@@ -349,8 +349,8 @@
       "id": "uc-save",
       "name": "Save Diagram",
       "position": {
-        "x": 1709.4944763183594,
-        "y": 1489.9295654296875
+        "x": 1765.8483581542969,
+        "y": 1452.3602294921875
       },
       "size": {
         "w": 160,
@@ -362,8 +362,8 @@
       "id": "uc-export",
       "name": "Export PNG",
       "position": {
-        "x": 1709.4944763183594,
-        "y": 1211.4171142578125
+        "x": 1765.8483581542969,
+        "y": 1173.8477783203125
       },
       "size": {
         "w": 160,
@@ -375,8 +375,8 @@
       "id": "uc-undo",
       "name": "Undo / Redo",
       "position": {
-        "x": 1709.4944763183594,
-        "y": 1689.9295654296875
+        "x": 1765.8483581542969,
+        "y": 1652.3602294921875
       },
       "size": {
         "w": 160,
@@ -388,8 +388,8 @@
       "id": "uc-load",
       "name": "Open Diagram File",
       "position": {
-        "x": 1689.6263122558594,
-        "y": 1589.9295654296875
+        "x": 1765.8483581542969,
+        "y": 1539.0826416015625
       },
       "size": {
         "w": 160,
@@ -401,8 +401,8 @@
       "id": "uc-theme",
       "name": "Change Theme",
       "position": {
-        "x": 1709.4944763183594,
-        "y": 1789.9295654296875
+        "x": 1765.8483581542969,
+        "y": 1752.3602294921875
       },
       "size": {
         "w": 160,
@@ -414,8 +414,8 @@
       "id": "uc-autosave",
       "name": "Auto-Save",
       "position": {
-        "x": 2126.571746826172,
-        "y": 1489.9295654296875
+        "x": 2182.9256286621094,
+        "y": 1452.3602294921875
       },
       "size": {
         "w": 160,
@@ -427,8 +427,8 @@
       "id": "ucs-app",
       "name": "Archetype",
       "position": {
-        "x": 1629.5647888183594,
-        "y": 1091.02734375
+        "x": 1685.9186706542969,
+        "y": 1053.4580078125
       },
       "size": {
         "w": 715.5528564453125,
@@ -440,7 +440,7 @@
       "id": "c2934f6f-2e94-431e-bb4d-44724e3857ab",
       "name": "Idle",
       "position": {
-        "x": -445,
+        "x": -750,
         "y": 68
       },
       "size": {
@@ -453,12 +453,12 @@
       "id": "85bd05e7-87f6-4e01-8eb9-9d48f2fcf720",
       "name": "Element Selected",
       "position": {
-        "x": -245.43827056884766,
-        "y": 382.5354919433594
+        "x": -231.39191436767578,
+        "y": 354.4427795410156
       },
       "size": {
-        "w": 120,
-        "h": 44
+        "w": 294.4182548522949,
+        "h": 115.13796997070312
       }
     },
     {
@@ -466,8 +466,8 @@
       "id": "13d4b5fe-8905-49df-ad17-45290b92da1f",
       "name": "Multi-Selected",
       "position": {
-        "x": 9.832328796386719,
-        "y": -119.50606727600098
+        "x": -539.8322010040283,
+        "y": -15.423851013183594
       },
       "size": {
         "w": 120,
@@ -479,11 +479,11 @@
       "id": "70075a6d-f4aa-450a-a882-3abf0dde135b",
       "name": "Dragging",
       "position": {
-        "x": 447.03546142578125,
-        "y": -14.722157716751099
+        "x": -173.87908935546875,
+        "y": -15.423851013183594
       },
       "size": {
-        "w": 120,
+        "w": 252.12646484375,
         "h": 44
       }
     },
@@ -492,8 +492,8 @@
       "id": "43f161c5-86e1-46fe-9ea9-4dbabb6ca305",
       "name": "Resizing",
       "position": {
-        "x": 217.89263916015625,
-        "y": 231.8617706298828
+        "x": -346.0596008300781,
+        "y": 558.8415832519531
       },
       "size": {
         "w": 120,
@@ -505,12 +505,12 @@
       "id": "1346b43c-e4cc-4f22-a7a1-ae87e1b482b9",
       "name": "Connecting",
       "position": {
-        "x": 163.0419158935547,
-        "y": 668.3371276855469
+        "x": -157.08953857421875,
+        "y": 647.6180725097656
       },
       "size": {
-        "w": 120,
-        "h": 44
+        "w": 218.54736328125,
+        "h": 51.226806640625
       }
     },
     {
@@ -518,8 +518,8 @@
       "id": "26d175a7-4366-4e67-814f-32a1242af533",
       "name": "Panning",
       "position": {
-        "x": -606.3557586669922,
-        "y": -132.8047103881836
+        "x": -970,
+        "y": -39.513206481933594
       },
       "size": {
         "w": 120,
@@ -531,8 +531,8 @@
       "id": "1cee6481-3179-45a9-8ea9-2c4b1e2d4cc4",
       "name": "Inline Editing",
       "position": {
-        "x": 447.03546142578125,
-        "y": 569.5072937011719
+        "x": 156.57623291015625,
+        "y": 558.8415832519531
       },
       "size": {
         "w": 120,
@@ -544,8 +544,8 @@
       "id": "5125d66f-f49c-44a9-a51d-86124f2c0c2b",
       "name": "Connection Popover",
       "position": {
-        "x": -393.14525604248047,
-        "y": 530.7164001464844
+        "x": -625.0544586181641,
+        "y": 399.5015106201172
       },
       "size": {
         "w": 120,
@@ -556,7 +556,7 @@
       "type": "start-state",
       "id": "a7e9e266-6f76-4ff2-9e68-64d80e6727b8",
       "position": {
-        "x": -679.4942626953125,
+        "x": -970,
         "y": 73.94114685058594
       },
       "size": {
@@ -568,8 +568,8 @@
       "type": "end-state",
       "id": "491fdad7-9b7a-46b7-897d-1441a0917525",
       "position": {
-        "x": 90.79139709472656,
-        "y": 72
+        "x": -870,
+        "y": 186.31494140625
       },
       "size": {
         "w": 36,
@@ -649,7 +649,7 @@
         {
           "id": "ll-persistence",
           "elementType": "seq-lifeline",
-          "name": "persistence.ts",
+          "name": "Persistence",
           "messages": [
             {
               "id": "m3",
@@ -707,7 +707,7 @@
         {
           "id": "ll-main",
           "elementType": "seq-lifeline",
-          "name": "main.ts",
+          "name": "Eventloop",
           "messages": [
             {
               "id": "m8",
@@ -969,14 +969,16 @@
       "source": "c2934f6f-2e94-431e-bb4d-44724e3857ab",
       "target": "85bd05e7-87f6-4e01-8eb9-9d48f2fcf720",
       "type": "transition",
-      "label": "click element"
+      "label": "click element",
+      "elbowMode": "max"
     },
     {
       "id": "0b24d4c1-401d-4fd5-bfde-846edb4dd45c",
       "source": "c2934f6f-2e94-431e-bb4d-44724e3857ab",
       "target": "13d4b5fe-8905-49df-ad17-45290b92da1f",
       "type": "transition",
-      "label": "rubber-band drag"
+      "label": "rubber-band drag",
+      "elbowMode": "max"
     },
     {
       "id": "fe483b26-24e9-4a14-8045-0ebe8e40c6c3",
@@ -984,14 +986,15 @@
       "target": "26d175a7-4366-4e67-814f-32a1242af533",
       "type": "transition",
       "label": "H key / middle-drag",
-      "elbowMode": "min"
+      "elbowMode": "max"
     },
     {
       "id": "49f48d8b-e297-4dbc-92b8-ff7b8954318d",
       "source": "85bd05e7-87f6-4e01-8eb9-9d48f2fcf720",
       "target": "c2934f6f-2e94-431e-bb4d-44724e3857ab",
       "type": "transition",
-      "label": "click canvas / Escape"
+      "label": "click canvas / Escape",
+      "elbowMode": "min"
     },
     {
       "id": "5ed27842-724f-4542-9ea2-df4f00522363",
@@ -1006,14 +1009,15 @@
       "target": "43f161c5-86e1-46fe-9ea9-4dbabb6ca305",
       "type": "transition",
       "label": "grab resize handle",
-      "elbowMode": "max"
+      "elbowMode": "min"
     },
     {
       "id": "861c7579-c2f2-4af6-95aa-4262113342bb",
       "source": "85bd05e7-87f6-4e01-8eb9-9d48f2fcf720",
       "target": "1346b43c-e4cc-4f22-a7a1-ae87e1b482b9",
       "type": "transition",
-      "label": "drag port"
+      "label": "drag port",
+      "elbowMode": "min"
     },
     {
       "id": "3669223d-7778-46d3-8afd-394a6f68e8da",
@@ -1057,7 +1061,7 @@
       "target": "85bd05e7-87f6-4e01-8eb9-9d48f2fcf720",
       "type": "transition",
       "label": "mouseup",
-      "elbowMode": "max"
+      "elbowMode": "min"
     },
     {
       "id": "5ec00349-c57b-45cb-875d-915c1ddc433f",
@@ -1071,8 +1075,7 @@
       "source": "1346b43c-e4cc-4f22-a7a1-ae87e1b482b9",
       "target": "85bd05e7-87f6-4e01-8eb9-9d48f2fcf720",
       "type": "transition",
-      "label": "drop on target",
-      "elbowMode": "max"
+      "label": "drop on target"
     },
     {
       "id": "79c03dc6-1ebb-45d6-88a5-e6fbd0a202e5",
@@ -1101,7 +1104,7 @@
       "target": "c2934f6f-2e94-431e-bb4d-44724e3857ab",
       "type": "transition",
       "label": "mouseup / V key",
-      "elbowMode": "min"
+      "elbowMode": "max"
     },
     {
       "id": "bb8ee106-09fc-4967-9315-be523086a405",
@@ -1112,8 +1115,8 @@
     }
   ],
   "viewport": {
-    "x": 119,
-    "y": -1525,
-    "zoom": 0.90377449535361
+    "x": 465,
+    "y": 101,
+    "zoom": 0.3117658239037262
   }
 }
