@@ -10,16 +10,16 @@ export function injectMarkerDefs(svg: SVGSVGElement) {
 
   // Each marker is drawn pointing right (→). SVG flips it automatically via orient="auto".
   // refX=9 so the arrowhead tip sits exactly on the line endpoint.
-  const markers: Array<{ id: string; path: string; fill: string; color?: string; refX?: string }> = [
+  const markers: Array<{ id: string; path: string; fill: string; color?: string; refX?: string; markerUnits?: string }> = [
     { id: 'arrow-association',      path: 'M0,0 L9,4.5 L0,9',               fill: 'none' },
     { id: 'arrow-dependency',       path: 'M0,0 L9,4.5 L0,9',               fill: 'none' },
     { id: 'arrow-inheritance',      path: 'M0,0 L9,4.5 L0,9 Z',             fill: 'var(--ctp-base)' },
     { id: 'arrow-realization',      path: 'M0,0 L9,4.5 L0,9 Z',             fill: 'var(--ctp-base)' },
     { id: 'arrow-composition',      path: 'M0,4.5 L4.5,0 L9,4.5 L4.5,9 Z', fill: 'var(--ctp-overlay1)' },
     { id: 'arrow-aggregation',      path: 'M0,4.5 L4.5,0 L9,4.5 L4.5,9 Z', fill: 'var(--ctp-base)' },
-    // Storage data-flow — teal arrowhead
-    { id: 'arrow-storage',          path: 'M0,0 L9,4.5 L0,9',               fill: 'none', color: 'var(--ctp-teal)' },
-    { id: 'arrow-storage-start',    path: 'M0,0 L9,4.5 L0,9',               fill: 'none', color: 'var(--ctp-teal)', refX: '0' },
+    // Storage data-flow — teal arrowhead, fixed size regardless of stroke-width
+    { id: 'arrow-storage',          path: 'M0,0 L9,4.5 L0,9',               fill: 'none', color: 'var(--ctp-teal)', markerUnits: 'userSpaceOnUse' },
+    { id: 'arrow-storage-start',    path: 'M0,0 L9,4.5 L0,9',               fill: 'none', color: 'var(--ctp-teal)', refX: '0', markerUnits: 'userSpaceOnUse' },
     // Use Case diagram types — open arrowhead in overlay2 color
     { id: 'arrow-uc-extend',        path: 'M0,0 L9,4.5 L0,9',               fill: 'none', color: 'var(--ctp-overlay2)' },
     { id: 'arrow-uc-include',       path: 'M0,0 L9,4.5 L0,9',               fill: 'none', color: 'var(--ctp-overlay2)' },
@@ -29,7 +29,7 @@ export function injectMarkerDefs(svg: SVGSVGElement) {
     { id: 'arrow-transition',       path: 'M0,0 L9,4.5 L0,9 Z',             fill: 'var(--ctp-text)', color: 'var(--ctp-text)' },
   ]
 
-  markers.forEach(({ id, path, fill, color, refX }) => {
+  markers.forEach(({ id, path, fill, color, refX, markerUnits }) => {
     const marker = svgEl('marker')
     marker.setAttribute('id', id)
     marker.setAttribute('markerWidth', '10')
@@ -38,6 +38,7 @@ export function injectMarkerDefs(svg: SVGSVGElement) {
     marker.setAttribute('refY', '4.5')
     marker.setAttribute('orient', 'auto')
     marker.setAttribute('viewBox', '0 0 9 9')
+    if (markerUnits) marker.setAttribute('markerUnits', markerUnits)
 
     const p = svgEl('path')
     p.setAttribute('d', path)
@@ -55,10 +56,13 @@ const DASH_TYPES: ConnectionType[] = ['dependency', 'realization', 'uc-extend', 
 
 export class ConnectionRenderer {
   readonly el: SVGGElement
-  // path = primary line; pathB = second line for read-write only
-  private path:  SVGPathElement
-  private pathB: SVGPathElement
+  // path = primary line; pathB = gap overlay for read-write double-rail
+  private path:    SVGPathElement
+  private pathB:   SVGPathElement
   private hitPath: SVGPathElement
+  // read-write arrowhead stubs drawn on top of the combined line
+  private stubSrc: SVGPathElement
+  private stubTgt: SVGPathElement
   private srcMult: SVGTextElement
   private tgtMult: SVGTextElement
   private label: SVGTextElement
@@ -85,6 +89,19 @@ export class ConnectionRenderer {
     this.hitPath.setAttribute('stroke-width', '12')
     this.hitPath.classList.add('conn-hit')
 
+    // Arrowhead stubs for read-write: short lines drawn over the rail ends
+    this.stubSrc = svgEl('path')
+    this.stubSrc.setAttribute('fill', 'none')
+    this.stubSrc.setAttribute('stroke', 'var(--ctp-teal)')
+    this.stubSrc.setAttribute('stroke-width', '1.5')
+    this.stubSrc.style.display = 'none'
+
+    this.stubTgt = svgEl('path')
+    this.stubTgt.setAttribute('fill', 'none')
+    this.stubTgt.setAttribute('stroke', 'var(--ctp-teal)')
+    this.stubTgt.setAttribute('stroke-width', '1.5')
+    this.stubTgt.style.display = 'none'
+
     this.srcMult = svgEl('text'); this.srcMult.classList.add('multiplicity')
     this.tgtMult = svgEl('text'); this.tgtMult.classList.add('multiplicity')
     this.label   = svgEl('text'); this.label.classList.add('conn-label')
@@ -110,7 +127,7 @@ export class ConnectionRenderer {
 
     this.channelSymbol.append(symCircle, symText, symArrow)
 
-    this.el.append(this.path, this.pathB, this.hitPath, this.srcMult, this.tgtMult, this.label, this.channelSymbol)
+    this.el.append(this.path, this.pathB, this.hitPath, this.stubSrc, this.stubTgt, this.srcMult, this.tgtMult, this.label, this.channelSymbol)
     this.el.addEventListener('click', e => this.onClick(conn, e))
     this.el.addEventListener('dblclick', e => {
       e.stopPropagation()
@@ -138,34 +155,53 @@ export class ConnectionRenderer {
     const isDash = DASH_TYPES.includes(conn.type)
     this.path.setAttribute('stroke-dasharray', isDash ? '6 3' : 'none')
     this.pathB.setAttribute('stroke-dasharray', 'none')
+    // Reset double-rail overrides (set only for read-write)
+    this.path.style.strokeWidth = ''
+    this.pathB.style.strokeWidth = ''
+    // Reset double-rail arrow overrides
+    this.stubSrc.style.display = 'none'
+    this.stubTgt.style.display = 'none'
 
     this.channelSymbol.style.display = 'none'
 
     if (conn.type === 'read-write') {
-      // Two parallel lines, each with a single arrowhead pointing at one entity.
-      // Offset perpendicular to the primary exit direction so the lines don't overlap.
-      // For horizontal exits (e/w) offset vertically; for vertical exits (n/s) offset horizontally.
-      const horiz = srcPort === 'e' || srcPort === 'w'
-      const GAP = 3.5
-      const ox = horiz ? 0 : GAP
-      const oy = horiz ? GAP : 0
-
-      // Forward path: source → target (offset +GAP)
-      const dFwd = orthogonalPath(x1 + ox, y1 + oy, srcPort, x2 + ox, y2 + oy, tgtPort, offset, srcRect, tgtRect)
-      this.path.setAttribute('d', dFwd)
-      this.path.setAttribute('marker-end', 'url(#arrow-storage)')
+      // Two parallel rails: wide teal outer + narrow background gap overlay on same path.
+      // Arrowheads drawn as separate stub segments on top so they sit correctly at each end.
+      const d = orthogonalPath(x1, y1, srcPort, x2, y2, tgtPort, offset, srcRect, tgtRect)
+      this.path.setAttribute('d', d)
+      this.path.removeAttribute('marker-end')
       this.path.removeAttribute('marker-start')
-      this.path.style.stroke = 'var(--ctp-teal)'
+      this.path.style.stroke      = 'var(--ctp-teal)'
+      this.path.style.strokeWidth = '7'
 
-      // Reverse path: target → source (offset -GAP, swapped direction)
-      const dRev = orthogonalPath(x2 - ox, y2 - oy, tgtPort, x1 - ox, y1 - oy, srcPort, offset, tgtRect, srcRect)
-      this.pathB.setAttribute('d', dRev)
-      this.pathB.setAttribute('marker-end', 'url(#arrow-storage)')
+      // Gap overlay: same path, background color, narrower — creates the two-line illusion
+      this.pathB.setAttribute('d', d)
+      this.pathB.removeAttribute('marker-end')
       this.pathB.removeAttribute('marker-start')
-      this.pathB.style.stroke = 'var(--ctp-teal)'
+      this.pathB.style.stroke      = 'var(--ctp-base)'
+      this.pathB.style.strokeWidth = '3'
       this.pathB.style.display = ''
 
-      this.hitPath.setAttribute('d', dFwd)
+      // Arrowhead stubs: minimal line segment (just enough for the marker) at each endpoint,
+      // offset onto its own rail. STUB=1 so no visible spine — only the arrowhead shows.
+      const STUB = 1
+      const RAIL = 2.5
+      const DIR: Record<string, [number, number]> = { n:[0,-1], s:[0,1], e:[1,0], w:[-1,0] }
+      const [sdx, sdy] = DIR[srcPort] ?? [1, 0]
+      const [tdx, tdy] = DIR[tgtPort] ?? [-1, 0]
+      // +perp CCW: (dx,dy) → (-dy, dx)
+      const [spx, spy] = [-sdy * RAIL,  sdx * RAIL]
+      const [tpx, tpy] = [-tdy * RAIL,  tdx * RAIL]
+
+      this.stubSrc.setAttribute('d', `M${x1+sdx*STUB+spx},${y1+sdy*STUB+spy} L${x1+spx},${y1+spy}`)
+      this.stubSrc.setAttribute('marker-end', 'url(#arrow-storage)')
+      this.stubSrc.style.display = ''
+
+      this.stubTgt.setAttribute('d', `M${x2+tdx*STUB+tpx},${y2+tdy*STUB+tpy} L${x2+tpx},${y2+tpy}`)
+      this.stubTgt.setAttribute('marker-end', 'url(#arrow-storage)')
+      this.stubTgt.style.display = ''
+
+      this.hitPath.setAttribute('d', d)
 
     } else if (conn.type === 'read' || conn.type === 'write') {
       // Single arrow pointing at target. Direction = source→target order; use flip to reverse.

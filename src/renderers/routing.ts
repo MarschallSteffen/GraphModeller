@@ -28,7 +28,7 @@ import type { ElbowMode } from '../entities/Connection.ts'
 export type PortSide = 'n' | 'e' | 's' | 'w'
 
 const CORNER_R  = 8    // px — rounded elbow radius
-const STUB      = 20   // px — perpendicular exit from port before first turn
+const STUB      = 20   // px — preferred perpendicular exit from port before first turn
 const MARGIN    = 24   // px — clearance outside an element for detour rails
 
 // Fewer turns wins over more turns unless the fewer-turn path is longer by
@@ -88,14 +88,24 @@ function portPt(rect: Rect, side: PortSide, frac = 0.5): Pt {
   return [p.x, p.y]
 }
 
-function stubFrom(px: number, py: number, side: PortSide): Pt {
+function stubFrom(px: number, py: number, side: PortSide, rect?: Rect): Pt {
   const [dx, dy] = DIR[side]
-  return [snap(px + dx * STUB), snap(py + dy * STUB)]
+  let dist = STUB
+  if (rect) {
+    // Available space from this port to the element's outer edge in the exit direction.
+    // Clamp to [1, STUB] so we never clip into the element but always exit cleanly.
+    const avail = side === 'e' ? (rect.x + rect.w) - px
+                : side === 'w' ? px - rect.x
+                : side === 's' ? (rect.y + rect.h) - py
+                :                py - rect.y   // n
+    dist = Math.min(STUB, Math.max(8, avail))
+  }
+  return [snap(px + dx * dist), snap(py + dy * dist)]
 }
 
 function stubPt(rect: Rect, side: PortSide, frac = 0.5): Pt {
   const [px, py] = portPt(rect, side, frac)
-  return stubFrom(px, py, side)
+  return stubFrom(px, py, side, rect)
 }
 
 // ─── Port selection ───────────────────────────────────────────────────────────
@@ -408,8 +418,8 @@ export function orthogonalPath(
   const sr: Rect = srcRect ?? { x: x1 - 1, y: y1 - 1, w: 2, h: 2 }
   const tr: Rect = tgtRect ?? { x: x2 - 1, y: y2 - 1, w: 2, h: 2 }
 
-  const [sx, sy] = stubFrom(x1, y1, srcPort)
-  const [tx, ty] = stubFrom(x2, y2, tgtPort)
+  const [sx, sy] = stubFrom(x1, y1, srcPort, sr)
+  const [tx, ty] = stubFrom(x2, y2, tgtPort, tr)
 
   const { inner } = bestInnerForPair(sx, sy, srcPort, tx, ty, tgtPort, sr, tr)
   const all: Pt[] = [[x1, y1], [sx, sy], ...inner, [tx, ty], [x2, y2]]
@@ -483,8 +493,8 @@ export function pathMidpoint(
   const sr: Rect = srcRect ?? { x: x1 - 1, y: y1 - 1, w: 2, h: 2 }
   const tr: Rect = tgtRect ?? { x: x2 - 1, y: y2 - 1, w: 2, h: 2 }
 
-  const [sx, sy] = stubFrom(x1, y1, srcPort)
-  const [tx, ty] = stubFrom(x2, y2, tgtPort)
+  const [sx, sy] = stubFrom(x1, y1, srcPort, sr)
+  const [tx, ty] = stubFrom(x2, y2, tgtPort, tr)
   const { inner } = bestInnerForPair(sx, sy, srcPort, tx, ty, tgtPort, sr, tr)
 
   const pts: Pt[] = [[x1, y1], [sx, sy], ...inner, [tx, ty], [x2, y2]]
@@ -506,6 +516,72 @@ export function pathMidpoint(
     walked += sLen
   }
   return { x: (x1 + x2) / 2, y: (y1 + y2) / 2, angle: 0 }
+}
+
+/**
+ * Produce a parallel-offset copy of an orthogonalPath `d` string.
+ * Each axis-aligned segment is shifted laterally by `gap` px perpendicular to its direction.
+ * At 90° corners the two offset lines meet at the exact intersection point:
+ *   horiz→vert corner: intersection = (vert_offset_x, horiz_offset_y)
+ *   vert→horiz corner: intersection = (vert_offset_x, horiz_offset_y)
+ * This produces clean parallel lines that look identical to the original, just shifted.
+ */
+export function parallelOffsetPath(d: string, gap: number): string {
+  // Parse M/L/Q commands; for Q take the endpoint (ignore control point).
+  const pts: Pt[] = []
+  const re = /([MLQ])\s*([-\d.]+),([-\d.]+)(?:\s+([-\d.]+),([-\d.]+))?/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(d)) !== null) {
+    if (m[1] === 'Q') {
+      pts.push([parseFloat(m[4]), parseFloat(m[5])])
+    } else {
+      pts.push([parseFloat(m[2]), parseFloat(m[3])])
+    }
+  }
+  if (pts.length < 2) return d
+
+  // Per-segment offset: returns the (ox, oy) to add to every point on that segment.
+  // Left of travel direction by `gap`.
+  function segOffset(a: Pt, b: Pt): Pt {
+    const dx = b[0] - a[0]; const dy = b[1] - a[1]
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      return [0, -gap * Math.sign(dx)] // horizontal → shift vertically
+    } else {
+      return [gap * Math.sign(dy), 0]  // vertical → shift horizontally
+    }
+  }
+
+  const n = pts.length
+  const off: Pt[] = new Array(n)
+
+  // Endpoints: offset by their single adjacent segment's perpendicular.
+  const o0 = segOffset(pts[0], pts[1])
+  off[0] = [pts[0][0] + o0[0], pts[0][1] + o0[1]]
+
+  const oLast = segOffset(pts[n - 2], pts[n - 1])
+  off[n - 1] = [pts[n - 1][0] + oLast[0], pts[n - 1][1] + oLast[1]]
+
+  // Interior points: intersection of the two adjacent offset lines.
+  // For 90° turns this is always well-defined:
+  //   if incoming is horizontal and outgoing is vertical:
+  //     intersection x = incoming_line_x = p.x + 0        (horizontal line carries y-offset only)
+  //     intersection y = outgoing_line_y = p.y + oIn[1]   ... wait, easier:
+  //     incoming offset: (0, oy_in)  → the line is at y = p.y + oy_in
+  //     outgoing offset: (ox_out, 0) → the line is at x = p.x + ox_out
+  //     → intersection = (p.x + ox_out, p.y + oy_in)
+  //   if incoming is vertical and outgoing is horizontal: symmetric
+  //   if both same axis (collinear): use either offset (they're equal)
+  for (let i = 1; i < n - 1; i++) {
+    const oIn  = segOffset(pts[i - 1], pts[i])
+    const oOut = segOffset(pts[i], pts[i + 1])
+    // For orthogonal paths exactly one of each pair (ox, oy) is zero.
+    // Intersection: take x from whichever segment provides an x-offset, y from y-offset.
+    const ox = oIn[0] !== 0 ? oIn[0] : oOut[0]
+    const oy = oIn[1] !== 0 ? oIn[1] : oOut[1]
+    off[i] = [pts[i][0] + ox, pts[i][1] + oy]
+  }
+
+  return off.map((p, i) => `${i === 0 ? 'M' : 'L'}${fmt(p[0])},${fmt(p[1])}`).join(' ')
 }
 
 export { absolutePortPosition }
