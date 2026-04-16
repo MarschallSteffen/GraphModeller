@@ -54,6 +54,28 @@ export function injectMarkerDefs(svg: SVGSVGElement) {
 
 const DASH_TYPES: ConnectionType[] = ['dependency', 'realization', 'uc-extend', 'uc-include']
 
+type ConnStyle = {
+  markerEnd?: string
+  stroke?: string
+}
+const CONN_STYLES: Partial<Record<ConnectionType, ConnStyle>> = {
+  'association':       { markerEnd: 'url(#arrow-association)' },
+  'dependency':        { markerEnd: 'url(#arrow-dependency)' },
+  'inheritance':       { markerEnd: 'url(#arrow-inheritance)' },
+  'realization':       { markerEnd: 'url(#arrow-realization)' },
+  'composition':       { markerEnd: 'url(#arrow-composition)' },
+  'aggregation':       { markerEnd: 'url(#arrow-aggregation)' },
+  'plain':             {},
+  'read':              { markerEnd: 'url(#arrow-storage)', stroke: 'var(--ctp-teal)' },
+  'write':             { markerEnd: 'url(#arrow-storage)', stroke: 'var(--ctp-teal)' },
+  'request':           { stroke: 'var(--ctp-mauve)' },
+  'uc-association':    { stroke: 'var(--ctp-overlay2)' },
+  'uc-extend':         { markerEnd: 'url(#arrow-uc-extend)', stroke: 'var(--ctp-overlay2)' },
+  'uc-include':        { markerEnd: 'url(#arrow-uc-include)', stroke: 'var(--ctp-overlay2)' },
+  'uc-specialization': { markerEnd: 'url(#arrow-uc-specialization)', stroke: 'var(--ctp-overlay2)' },
+  'transition':        { markerEnd: 'url(#arrow-transition)' },
+}
+
 export class ConnectionRenderer {
   readonly el: SVGGElement
   // path = primary line; pathB = gap overlay for read-write double-rail
@@ -203,103 +225,38 @@ export class ConnectionRenderer {
 
       this.hitPath.setAttribute('d', d)
 
-    } else if (conn.type === 'read' || conn.type === 'write') {
-      // Single arrow pointing at target. Direction = source→target order; use flip to reverse.
-      const d = orthogonalPath(x1, y1, srcPort, x2, y2, tgtPort, offset, srcRect, tgtRect)
-      this.path.setAttribute('d', d)
-      this.path.setAttribute('marker-end', 'url(#arrow-storage)')
-      this.path.removeAttribute('marker-start')
-      this.path.style.stroke = 'var(--ctp-teal)'
-      this.pathB.style.display = 'none'
-      this.hitPath.setAttribute('d', d)
-
-    } else if (conn.type === 'request') {
-      const d = orthogonalPath(x1, y1, srcPort, x2, y2, tgtPort, offset, srcRect, tgtRect)
-      this.path.setAttribute('d', d)
-      this.path.removeAttribute('marker-end')
-      this.path.removeAttribute('marker-start')
-      this.path.style.stroke = 'var(--ctp-mauve)'
-      this.pathB.style.display = 'none'
-      this.hitPath.setAttribute('d', d)
-
-      // Position channel symbol at the true arc-length midpoint of the path
-      const mid = pathMidpoint(x1, y1, srcPort, x2, y2, tgtPort, srcRect, tgtRect)
-      this.channelSymbol.setAttribute('transform', `translate(${mid.x},${mid.y})`)
-      this.channelSymbol.style.display = ''
-
-      // Rotate arrow indicator to match the path direction at the midpoint
-      const symArrow = this.channelSymbol.querySelector<SVGPathElement>('.channel-arrow')
-      if (symArrow) {
-        symArrow.setAttribute('transform', `rotate(${mid.angle - 90})`)
-      }
-
-    } else if (conn.type === 'plain') {
-      const d = orthogonalPath(x1, y1, srcPort, x2, y2, tgtPort, offset, srcRect, tgtRect)
-      this.path.setAttribute('d', d)
-      this.path.removeAttribute('marker-end')
-      this.path.removeAttribute('marker-start')
-      this.path.style.stroke = ''
-      this.pathB.style.display = 'none'
-      this.hitPath.setAttribute('d', d)
-
-    } else if (conn.type === 'uc-association') {
-      // Plain line, no arrowhead — UC association between actor and use case
-      const d = orthogonalPath(x1, y1, srcPort, x2, y2, tgtPort, offset, srcRect, tgtRect)
-      this.path.setAttribute('d', d)
-      this.path.removeAttribute('marker-end')
-      this.path.removeAttribute('marker-start')
-      this.path.style.stroke = 'var(--ctp-overlay2)'
-      this.pathB.style.display = 'none'
-      this.hitPath.setAttribute('d', d)
-
-    } else if (conn.type === 'uc-extend' || conn.type === 'uc-include') {
-      // Dashed line with open arrowhead; stereotype label injected via the label field
-      const d = orthogonalPath(x1, y1, srcPort, x2, y2, tgtPort, offset, srcRect, tgtRect)
-      this.path.setAttribute('d', d)
-      this.path.setAttribute('marker-end', `url(#arrow-${conn.type})`)
-      this.path.removeAttribute('marker-start')
-      this.path.style.stroke = 'var(--ctp-overlay2)'
-      this.pathB.style.display = 'none'
-      this.hitPath.setAttribute('d', d)
-
-    } else if (conn.type === 'uc-specialization') {
-      // Solid line with hollow triangle — actor/use-case generalisation
-      const d = orthogonalPath(x1, y1, srcPort, x2, y2, tgtPort, offset, srcRect, tgtRect)
-      this.path.setAttribute('d', d)
-      this.path.setAttribute('marker-end', 'url(#arrow-uc-specialization)')
-      this.path.removeAttribute('marker-start')
-      this.path.style.stroke = 'var(--ctp-overlay2)'
-      this.pathB.style.display = 'none'
-      this.hitPath.setAttribute('d', d)
-
-    } else if (conn.type === 'transition') {
-      // State diagram transition — solid line with filled arrowhead
-      const d = orthogonalPath(x1, y1, srcPort, x2, y2, tgtPort, offset, srcRect, tgtRect)
-      this.path.setAttribute('d', d)
-      this.path.setAttribute('marker-end', 'url(#arrow-transition)')
-      this.path.removeAttribute('marker-start')
-      this.path.style.stroke = ''
-      this.pathB.style.display = 'none'
-      this.hitPath.setAttribute('d', d)
-
     } else {
-      // Standard UML connection types
+      const style = CONN_STYLES[conn.type] ?? {}
       const d = orthogonalPath(x1, y1, srcPort, x2, y2, tgtPort, offset, srcRect, tgtRect)
       this.path.setAttribute('d', d)
-      this.path.setAttribute('marker-end', `url(#arrow-${conn.type})`)
+      if (style.markerEnd) {
+        this.path.setAttribute('marker-end', style.markerEnd)
+      } else {
+        this.path.removeAttribute('marker-end')
+      }
       this.path.removeAttribute('marker-start')
-      this.path.style.stroke = ''
+      this.path.style.stroke = style.stroke ?? ''
       this.pathB.style.display = 'none'
       this.hitPath.setAttribute('d', d)
     }
 
-    // Label at true arc-length midpoint — uc-extend/uc-include show stereotype if no custom label
+    // Label and multiplicity — uc-extend/uc-include show stereotype if no custom label
     const stereotype = conn.type === 'uc-extend' ? '«extend»' : conn.type === 'uc-include' ? '«include»' : null
     const labelText = conn.label || stereotype || ''
     this.label.textContent = labelText
     const mid = pathMidpoint(x1, y1, srcPort, x2, y2, tgtPort, srcRect, tgtRect)
     this.label.setAttribute('x', String(mid.x))
     this.label.setAttribute('y', String(mid.y - 8))
+
+    // Position channel symbol (request type only) at midpoint
+    if (conn.type === 'request') {
+      this.channelSymbol.setAttribute('transform', `translate(${mid.x},${mid.y})`)
+      this.channelSymbol.style.display = ''
+      const symArrow = this.channelSymbol.querySelector<SVGPathElement>('.channel-arrow')
+      if (symArrow) {
+        symArrow.setAttribute('transform', `rotate(${mid.angle - 90})`)
+      }
+    }
 
     const mx = (x1 + x2) / 2
     const my = (y1 + y2) / 2

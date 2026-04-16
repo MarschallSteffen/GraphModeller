@@ -16,6 +16,21 @@ import type { CombinedFragment } from '../entities/CombinedFragment.ts'
 import type { ElementKind } from '../types.ts'
 import type { Point, Size } from '../entities/common.ts'
 
+const KIND_TO_COLLECTION: Partial<Record<ElementKind, keyof Diagram>> = {
+  'class':        'classes',
+  'package':      'packages',
+  'storage':      'storages',
+  'actor':        'actors',
+  'queue':        'queues',
+  'use-case':     'useCases',
+  'uc-system':    'ucSystems',
+  'state':        'states',
+  'start-state':  'startStates',
+  'end-state':    'endStates',
+  'seq-diagram':  'sequenceDiagrams',
+  'seq-fragment': 'combinedFragments',
+}
+
 export type StoreEventType =
   | 'class:add' | 'class:update' | 'class:remove'
   | 'package:add' | 'package:update' | 'package:remove'
@@ -58,20 +73,9 @@ export class DiagramStore {
   }
 
   findElementById(kind: ElementKind, id: string): { position: Point; size: Size } | undefined {
-    switch (kind) {
-      case 'class':       return this.diagram.classes.find(c => c.id === id)
-      case 'package':     return this.diagram.packages.find(p => p.id === id)
-      case 'storage':     return this.diagram.storages.find(s => s.id === id)
-      case 'actor':       return this.diagram.actors.find(a => a.id === id)
-      case 'queue':       return this.diagram.queues.find(q => q.id === id)
-      case 'use-case':    return this.diagram.useCases.find(u => u.id === id)
-      case 'uc-system':   return this.diagram.ucSystems.find(u => u.id === id)
-      case 'state':       return this.diagram.states.find(s => s.id === id)
-      case 'start-state': return this.diagram.startStates.find(s => s.id === id)
-      case 'end-state':   return this.diagram.endStates.find(s => s.id === id)
-      case 'seq-diagram': return this.diagram.sequenceDiagrams.find(sd => sd.id === id)
-      case 'seq-fragment': return this.diagram.combinedFragments.find(f => f.id === id)
-    }
+    const col = KIND_TO_COLLECTION[kind]
+    if (!col) return undefined
+    return (this.diagram[col] as Array<{ id: string; position: Point; size: Size }>)?.find(e => e.id === id)
   }
 
   /** Search all collections for an element by id (kind-agnostic). */
@@ -90,20 +94,12 @@ export class DiagramStore {
   }
 
   updateElementPosition(kind: ElementKind, id: string, patch: { position: Point; size?: Size }): void {
-    switch (kind) {
-      case 'class':       this.updateClass(id, patch); break
-      case 'package':     this.updatePackage(id, patch); break
-      case 'storage':     this.updateStorage(id, patch); break
-      case 'actor':       this.updateActor(id, patch); break
-      case 'queue':       this.updateQueue(id, patch); break
-      case 'use-case':    this.updateUseCase(id, patch); break
-      case 'uc-system':   this.updateUCSystem(id, patch); break
-      case 'state':       this.updateState(id, patch); break
-      case 'start-state': this.updateStartState(id, patch); break
-      case 'end-state':   this.updateEndState(id, patch); break
-      case 'seq-diagram': this.updateSequenceDiagram(id, patch); break
-      case 'seq-fragment': this.updateCombinedFragment(id, patch); break
-    }
+    const col = KIND_TO_COLLECTION[kind]
+    if (!col) return
+    const el = (this.diagram[col] as Array<{ id: string; position: Point; size: Size }>)?.find(e => e.id === id)
+    if (!el) return
+    Object.assign(el, patch)
+    this.emit(`${kind}:update` as StoreEventType, el)
   }
 
   private emit(type: StoreEventType, payload?: unknown) {

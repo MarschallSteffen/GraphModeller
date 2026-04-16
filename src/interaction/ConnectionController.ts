@@ -8,8 +8,7 @@ import type { PortSide as RoutePortSide } from '../renderers/routing.ts'
 import type { ElementConfig } from '../config/ElementConfig.ts'
 import { getElementConfig } from '../config/registry.ts'
 import { defaultConnectionType } from '../ui/ConnectionPopover.ts'
-
-const SVG_NS = 'http://www.w3.org/2000/svg'
+import { svgEl } from '../renderers/svgUtils.ts'
 
 interface PortRef {
   elementId: string
@@ -57,7 +56,7 @@ export class ConnectionController {
       y: abs.y,
     }
 
-    const line = document.createElementNS(SVG_NS, 'line')
+    const line = svgEl('line')
     line.classList.add('ghost-line')
     line.setAttribute('x1', String(abs.x))
     line.setAttribute('y1', String(abs.y))

@@ -106,7 +106,7 @@ export class ClassRenderer {
 
     this.el.setAttribute('transform', `translate(${x},${y})`)
 
-    renderShadow(this.shadowGroup, cls.multiInstance ?? false, 'class-shadow-shape', this.computedW, this.computedH, 6)
+    renderShadow(this.shadowGroup, cls.multiInstance, 'class-shadow-shape', this.computedW, this.computedH, 6)
 
     // Header
     this.header.setAttribute('width',  String(this.computedW))
@@ -138,53 +138,44 @@ export class ClassRenderer {
 
     // ── Attributes section ──
     const attrY = HEADER_H
-    this.attrDivider.setAttribute('x1', '0'); this.attrDivider.setAttribute('x2', String(this.computedW))
-    this.attrDivider.setAttribute('y1', String(attrY)); this.attrDivider.setAttribute('y2', String(attrY))
-
-    this.attrLabel.setAttribute('x', String(PADDING_X))
-    this.attrLabel.setAttribute('y', String(attrY + SECTION_LABEL_H * 0.72))
-
-    this.attrGroup.innerHTML = ''
-    attrLines.forEach((line, i) => {
-      const t = svgEl('text')
-      t.classList.add('member-text')
-      t.textContent = line
-      t.setAttribute('x', String(PADDING_X))
-      t.setAttribute('y', String(attrY + SECTION_LABEL_H + ROW_H * i + ROW_H * 0.72))
-      t.dataset.memberIdx = String(i)
-      t.dataset.memberKind = 'attribute'
-      this.attrGroup.appendChild(t)
-    })
-
-    const addAttrY = attrY + SECTION_LABEL_H + attrLines.length * ROW_H + ROW_H * 0.72
-    this.addAttrBtn.setAttribute('x', String(PADDING_X))
-    this.addAttrBtn.setAttribute('y', String(addAttrY))
+    this.renderMemberSection(this.attrDivider, this.attrLabel, this.attrGroup, this.addAttrBtn, attrLines, attrY, 'attribute')
 
     // ── Methods section ──
     const methodY = HEADER_H + attrSectionH
-    this.methodDivider.setAttribute('x1', '0'); this.methodDivider.setAttribute('x2', String(this.computedW))
-    this.methodDivider.setAttribute('y1', String(methodY)); this.methodDivider.setAttribute('y2', String(methodY))
+    this.renderMemberSection(this.methodDivider, this.methodLabel, this.methodGroup, this.addMethodBtn, methodLines, methodY, 'method')
 
-    this.methodLabel.setAttribute('x', String(PADDING_X))
-    this.methodLabel.setAttribute('y', String(methodY + SECTION_LABEL_H * 0.72))
+    updatePortPositions(this.portsGroup, this.computedW, this.computedH, portPosition)
+  }
 
-    this.methodGroup.innerHTML = ''
-    methodLines.forEach((line, i) => {
+  private renderMemberSection(
+    divider: SVGLineElement,
+    label: SVGTextElement,
+    group: SVGGElement,
+    addBtn: SVGTextElement,
+    lines: string[],
+    sectionY: number,
+    memberKind: 'attribute' | 'method',
+  ) {
+    divider.setAttribute('x1', '0'); divider.setAttribute('x2', String(this.computedW))
+    divider.setAttribute('y1', String(sectionY)); divider.setAttribute('y2', String(sectionY))
+
+    label.setAttribute('x', String(PADDING_X))
+    label.setAttribute('y', String(sectionY + SECTION_LABEL_H * 0.72))
+
+    group.innerHTML = ''
+    lines.forEach((line, i) => {
       const t = svgEl('text')
       t.classList.add('member-text')
       t.textContent = line
       t.setAttribute('x', String(PADDING_X))
-      t.setAttribute('y', String(methodY + SECTION_LABEL_H + ROW_H * i + ROW_H * 0.72))
+      t.setAttribute('y', String(sectionY + SECTION_LABEL_H + ROW_H * i + ROW_H * 0.72))
       t.dataset.memberIdx = String(i)
-      t.dataset.memberKind = 'method'
-      this.methodGroup.appendChild(t)
+      t.dataset.memberKind = memberKind
+      group.appendChild(t)
     })
 
-    const addMethodY = methodY + SECTION_LABEL_H + methodLines.length * ROW_H + ROW_H * 0.72
-    this.addMethodBtn.setAttribute('x', String(PADDING_X))
-    this.addMethodBtn.setAttribute('y', String(addMethodY))
-
-    updatePortPositions(this.portsGroup, this.computedW, this.computedH, portPosition)
+    addBtn.setAttribute('x', String(PADDING_X))
+    addBtn.setAttribute('y', String(sectionY + SECTION_LABEL_H + lines.length * ROW_H + ROW_H * 0.72))
   }
 
   getRenderedSize() { return { w: this.computedW, h: this.computedH } }

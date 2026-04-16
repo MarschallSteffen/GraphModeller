@@ -1,15 +1,15 @@
 import type { ThemeFlavour } from '../themes/catppuccin.ts'
-import { applyTheme } from '../themes/catppuccin.ts'
+import { applyTheme, LATTE, FRAPPE, MACCHIATO, MOCHA } from '../themes/catppuccin.ts'
 
 export type Tool = 'select' | 'pan' | 'class' | 'package' | 'storage' | 'agent' | 'human-agent' | 'queue' | 'use-case' | 'uc-actor' | 'uc-system' | 'state' | 'start-state' | 'end-state' | 'seq-diagram' | 'seq-fragment'
 
 type ToolChangeListener = (tool: Tool) => void
 
 const FLAVOURS: Array<{ id: ThemeFlavour; label: string; dot: string }> = [
-  { id: 'latte',     label: 'Latte',     dot: '#eff1f5' },
-  { id: 'frappe',    label: 'Frappé',    dot: '#303446' },
-  { id: 'macchiato', label: 'Macchiato', dot: '#24273a' },
-  { id: 'mocha',     label: 'Mocha',     dot: '#1e1e2e' },
+  { id: 'latte',     label: 'Latte',     dot: LATTE.base },
+  { id: 'frappe',    label: 'Frappé',    dot: FRAPPE.base },
+  { id: 'macchiato', label: 'Macchiato', dot: MACCHIATO.base },
+  { id: 'mocha',     label: 'Mocha',     dot: MOCHA.base },
 ]
 
 // SVG icon paths (Material-style, 24x24 viewBox)
@@ -32,29 +32,16 @@ const ICONS: Record<Tool, string> = {
   'seq-fragment':`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="8" width="18" height="13" rx="1.5"/><path d="M3 8 L3 5 Q3 3 5 3 L9 3 Q11 3 11 5 L11 8" fill="none"/></svg>`,
 }
 
-const TOOL_LABELS: Record<Tool, string> = {
-  select:        'Select (V)',
-  pan:           'Pan (H)',
-  class:         'Add Class (C)',
-  package:       'Add Package (P)',
-  storage:       'Add Storage (S)',
-  agent:         'Add Agent (A)',
-  'human-agent': 'Add Human Agent (U)',
-  queue:         'Add Queue (Q)',
-  'use-case':    'Add Use Case (E)',
-  'uc-actor':    'Add Actor',
-  'uc-system':   'Add System Boundary',
-  'state':       'Add State (T)',
-  'start-state': 'Add Start State',
-  'end-state':   'Add End State',
-  'seq-diagram': 'Add Sequence Diagram (L)',
-  'seq-fragment':'Add Combined Fragment',
+interface ToolDef {
+  kind: Tool
+  label: string
+  key?: string  // keyboard shortcut (single lowercase letter)
 }
 
 interface ToolGroup {
   label: string
   shortLabel: string  // 2-3 char abbreviation shown on collapsed header
-  tools: Tool[]
+  tools: ToolDef[]
   defaultOpen: boolean
 }
 
@@ -62,40 +49,75 @@ const TOOL_GROUPS: ToolGroup[] = [
   {
     label: 'Navigation',
     shortLabel: 'Nav',
-    tools: ['select', 'pan'],
+    tools: [
+      { kind: 'select',        label: 'Select',               key: 'v' },
+      { kind: 'pan',           label: 'Pan',                  key: 'h' },
+    ],
     defaultOpen: true,
   },
   {
     label: 'UML Class Diagram',
     shortLabel: 'UML',
-    tools: ['class', 'package'],
+    tools: [
+      { kind: 'class',         label: 'Add Class',            key: 'c' },
+      { kind: 'package',       label: 'Add Package',          key: 'p' },
+    ],
     defaultOpen: false,
   },
   {
     label: 'TAM Block Diagram',
     shortLabel: 'TAM',
-    tools: ['agent', 'human-agent', 'storage', 'queue'],
+    tools: [
+      { kind: 'agent',         label: 'Add Agent',            key: 'a' },
+      { kind: 'human-agent',   label: 'Add Human Agent',      key: 'u' },
+      { kind: 'storage',       label: 'Add Storage',          key: 's' },
+      { kind: 'queue',         label: 'Add Queue',            key: 'q' },
+    ],
     defaultOpen: false,
   },
   {
     label: 'TAM Use Case Diagram',
     shortLabel: 'UC',
-    tools: ['use-case', 'uc-actor', 'uc-system'],
+    tools: [
+      { kind: 'use-case',      label: 'Add Use Case',         key: 'e' },
+      { kind: 'uc-actor',      label: 'Add Actor'                       },
+      { kind: 'uc-system',     label: 'Add System Boundary'             },
+    ],
     defaultOpen: false,
   },
   {
     label: 'TAM State Diagram',
     shortLabel: 'SD',
-    tools: ['state', 'start-state', 'end-state'],
+    tools: [
+      { kind: 'state',         label: 'Add State',            key: 't' },
+      { kind: 'start-state',   label: 'Add Start State'                 },
+      { kind: 'end-state',     label: 'Add End State'                   },
+    ],
     defaultOpen: false,
   },
   {
     label: 'TAM Sequence Diagram',
     shortLabel: 'SQ',
-    tools: ['seq-diagram', 'seq-fragment'],
+    tools: [
+      { kind: 'seq-diagram',   label: 'Add Sequence Diagram', key: 'l' },
+      { kind: 'seq-fragment',  label: 'Add Combined Fragment'           },
+    ],
     defaultOpen: false,
   },
 ]
+
+/** Map from lowercase key letter → tool kind, derived from TOOL_GROUPS */
+const keyMap: Record<string, Tool> = {}
+for (const group of TOOL_GROUPS) {
+  for (const tool of group.tools) {
+    if (tool.key) keyMap[tool.key] = tool.kind
+  }
+}
+
+/** Tooltip label including keyboard hint when a shortcut exists */
+function toolTitle(tool: ToolDef): string {
+  return tool.key ? `${tool.label} (${tool.key.toUpperCase()})` : tool.label
+}
 
 export class Toolbar {
   private current: Tool = 'select'
@@ -141,6 +163,7 @@ export class Toolbar {
       const header = document.createElement('button')
       header.classList.add('tool-group-header')
       header.title = group.label
+      header.setAttribute('aria-label', group.label)
       header.innerHTML = `
         <span class="tool-group-label">${group.shortLabel}</span>
         <svg class="tool-group-chevron" viewBox="0 0 10 6" width="8" height="8">
@@ -161,12 +184,15 @@ export class Toolbar {
       group.tools.forEach(tool => {
         const btn = document.createElement('button')
         btn.classList.add('tool-btn')
-        btn.innerHTML = ICONS[tool]
-        btn.title = TOOL_LABELS[tool]
-        if (tool === this.current) btn.classList.add('active')
-        btn.addEventListener('click', () => this.setTool(tool))
+        btn.dataset.tool = tool.kind
+        btn.innerHTML = ICONS[tool.kind]
+        const title = toolTitle(tool)
+        btn.title = title
+        btn.setAttribute('aria-label', title)
+        if (tool.kind === this.current) btn.classList.add('active')
+        btn.addEventListener('click', () => this.setTool(tool.kind))
         body.appendChild(btn)
-        this.buttons.set(tool, btn)
+        this.buttons.set(tool.kind, btn)
       })
 
       groupEl.append(header, body)
@@ -185,7 +211,8 @@ export class Toolbar {
       const dot = document.createElement('button')
       dot.classList.add('theme-dot', 'tool-btn')
       dot.style.background = f.dot
-      dot.title = f.id
+      dot.title = f.label
+      dot.setAttribute('aria-label', f.label)
       dot.dataset.theme = f.id
       dot.dataset.active = String(
         document.documentElement.getAttribute('data-theme') === f.id,
@@ -200,20 +227,10 @@ export class Toolbar {
     })
     this.container.appendChild(picker)
 
-    // Keyboard shortcuts
     document.addEventListener('keydown', e => {
       if ((e.target as HTMLElement).tagName === 'INPUT') return
-      if (e.key === 'v' || e.key === 'V') this.setTool('select')
-      if (e.key === 'h' || e.key === 'H') this.setTool('pan')
-      if (e.key === 'c' || e.key === 'C') this.setTool('class')
-      if (e.key === 'p' || e.key === 'P') this.setTool('package')
-      if (e.key === 's' || e.key === 'S') this.setTool('storage')
-      if (e.key === 'a' || e.key === 'A') this.setTool('agent')
-      if (e.key === 'u' || e.key === 'U') this.setTool('human-agent')
-      if (e.key === 'q' || e.key === 'Q') this.setTool('queue')
-      if (e.key === 'e' || e.key === 'E') this.setTool('use-case')
-      if (e.key === 't' || e.key === 'T') this.setTool('state')
-      if (e.key === 'l' || e.key === 'L') this.setTool('seq-diagram')
+      const tool = keyMap[e.key.toLowerCase()]
+      if (tool) this.setTool(tool)
     })
   }
 }

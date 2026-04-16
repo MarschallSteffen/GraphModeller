@@ -103,4 +103,8 @@ export class SequenceDiagramRenderer {
   getRenderedSize(): { w: number; h: number } {
     return { w: this.sd.size.w, h: this.sd.size.h }
   }
+
+  getContentMinSize(): { w: number; h: number } {
+    return this.getRenderedSize()
+  }
 }

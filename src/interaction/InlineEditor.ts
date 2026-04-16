@@ -1,4 +1,4 @@
-const SVG_NS = 'http://www.w3.org/2000/svg'
+import { svgEl } from '../renderers/svgUtils.ts'
 
 export class InlineEditor {
   private active: {
@@ -24,7 +24,7 @@ export class InlineEditor {
     const bbox = textEl.getBBox()
     if (wasEmpty) textEl.textContent = ''
 
-    const fo = document.createElementNS(SVG_NS, 'foreignObject')
+    const fo = svgEl('foreignObject')
     fo.setAttribute('x', String(bbox.x - 4))
     fo.setAttribute('y', String(bbox.y - 2))
     fo.setAttribute('width', String(Math.max(bbox.width + 16, 120)))

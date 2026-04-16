@@ -15,7 +15,7 @@ export interface UmlClass {
   methods: Method[]
   position: Point
   size: Size
-  multiInstance?: boolean
+  multiInstance: boolean
 }
 
 export function createUmlClass(partial: Partial<UmlClass> & { name: string }): UmlClass {

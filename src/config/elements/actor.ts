@@ -9,6 +9,7 @@ export const agentConfig: ElementConfig = {
     asSource: ['request'],
     asTarget: ['request'],
   },
+  preferredConnectionType: 'request',
   supportsMultiplicity: false,
 }
 
@@ -20,5 +21,6 @@ export const humanAgentConfig: ElementConfig = {
     asSource: ['request'],
     asTarget: ['request'],
   },
+  preferredConnectionType: 'request',
   supportsMultiplicity: false,
 }

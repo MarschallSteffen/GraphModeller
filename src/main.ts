@@ -20,7 +20,7 @@ import { ResizeController } from './interaction/ResizeController.ts'
 import { ConnectionController } from './interaction/ConnectionController.ts'
 import { SelectionManager } from './interaction/SelectionManager.ts'
 import { InlineEditor } from './interaction/InlineEditor.ts'
-import { Toolbar } from './ui/Toolbar.ts'
+import { Toolbar, type Tool as ToolKind } from './ui/Toolbar.ts'
 import { FileMenu } from './ui/FileMenu.ts'
 import { showConnectionPopover } from './ui/ConnectionPopover.ts'
 import { showMsgPopover } from './ui/MessagePopover.ts'
@@ -204,6 +204,7 @@ interface AnyRenderer {
   readonly el: SVGGElement
   setSelected(s: boolean): void
   getRenderedSize(): { w: number; h: number }
+  getContentMinSize(): { w: number; h: number }
   destroy(): void
 }
 
@@ -292,17 +293,10 @@ function getContainedElements(containerId: string): Array<{ kind: ElementKind; i
     const cy = el.position.y + el.size.h / 2
     return cx > x && cx < x + w && cy > y && cy < y + h
   }
-  d.classes.forEach(e  => { if (inside(e)) result.push({ kind: 'class',     id: e.id }) })
-  d.storages.forEach(e => { if (inside(e)) result.push({ kind: 'storage',   id: e.id }) })
-  d.actors.forEach(e   => { if (inside(e)) result.push({ kind: 'actor',     id: e.id }) })
-  d.queues.forEach(e   => { if (inside(e)) result.push({ kind: 'queue',     id: e.id }) })
-  d.useCases.forEach(e => { if (inside(e)) result.push({ kind: 'use-case',  id: e.id }) })
-  d.ucSystems.forEach(e=> { if (inside(e)) result.push({ kind: 'uc-system', id: e.id }) })
-  d.states?.forEach(e    => { if (inside(e)) result.push({ kind: 'state',       id: e.id }) })
-  d.startStates?.forEach(e => { if (inside(e)) result.push({ kind: 'start-state', id: e.id }) })
-  d.endStates?.forEach(e   => { if (inside(e)) result.push({ kind: 'end-state',   id: e.id }) })
-  d.sequenceDiagrams?.forEach(e => { if (inside(e)) result.push({ kind: 'seq-diagram', id: e.id }) })
-  d.combinedFragments?.forEach(e => { if (inside(e)) result.push({ kind: 'seq-fragment', id: e.id }) })
+  for (const desc of ELEMENTS) {
+    const items = (d[desc.collection] as Array<{ id: string; position: { x: number; y: number }; size: { w: number; h: number } }>) ?? []
+    items.forEach(el => { if (inside(el)) result.push({ kind: desc.kind, id: el.id }) })
+  }
   return result
 }
 
@@ -882,13 +876,13 @@ function showPropertiesForSelection() {
     hideElementPropertiesPanel(); return
   }
 
-  let el: AnyElement & { multiInstance?: boolean } | undefined
+  let el: AnyElement & { multiInstance: boolean } | undefined
   let updateFn: (patch: { multiInstance?: boolean; flowReversed?: boolean }) => void = () => {}
   let isQueue = false
 
   if (item.kind === 'class') {
     const c = d.classes.find(c => c.id === item.id)
-    if (c) { el = c as AnyElement; updateFn = p => store.updateClass(item.id, p) }
+    if (c) { el = c as AnyElement & { multiInstance: boolean }; updateFn = p => store.updateClass(item.id, p) }
   } else if (item.kind === 'storage') {
     const s = d.storages.find(s => s.id === item.id)
     if (s) { el = s; updateFn = p => store.updateStorage(item.id, p) }
@@ -911,7 +905,7 @@ function showPropertiesForSelection() {
   showElementPropertiesPanel(
     screenX,
     screenY,
-    el.multiInstance ?? false,
+    el.multiInstance,
     (multiInstance) => updateFn({ multiInstance }),
     queue ? (queue.flowReversed ?? false) : undefined,
     queue ? (reversed) => updateFn({ flowReversed: reversed }) : undefined,
@@ -925,20 +919,12 @@ function showPropertiesForSelection() {
  * Used by ResizeController to clamp resize at content boundaries.
  */
 function getMinSize(kind: ElementKind, id: string): { w: number; h: number } {
-  switch (kind) {
-    case 'class':     return classRenderers.get(id)?.getContentMinSize()     ?? { w: 180, h: 40 }
-    case 'package':   return pkgRenderers.get(id)?.getContentMinSize()       ?? { w: 120, h: 60 }
-    case 'storage':   return storageRenderers.get(id)?.getContentMinSize()   ?? { w: 80,  h: 40 }
-    case 'actor':     return actorRenderers.get(id)?.getContentMinSize()     ?? { w: 80,  h: 40 }
-    case 'queue':     return queueRenderers.get(id)?.getContentMinSize()     ?? { w: 100, h: 48 }
-    case 'use-case':    return ucRenderers.get(id)?.getContentMinSize()        ?? { w: 140, h: 60 }
-    case 'uc-system':   return ucSystemRenderers.get(id)?.getContentMinSize()  ?? { w: 160, h: 120 }
-    case 'state':       return stateRenderers.get(id)?.getContentMinSize()     ?? { w: 80,  h: 36 }
-    case 'start-state': return startStateRenderers.get(id)?.getContentMinSize() ?? { w: 28, h: 28 }
-    case 'end-state':   return endStateRenderers.get(id)?.getContentMinSize()   ?? { w: 36, h: 36 }
-    case 'seq-diagram': return seqDiagramRenderers.get(id)?.getRenderedSize() ?? { w: 300, h: 200 }
-    case 'seq-fragment': return seqFragmentRenderers.get(id)?.getContentMinSize() ?? { w: 80, h: 60 }
+  for (const desc of ELEMENTS) {
+    if (desc.kind === kind) {
+      return desc.renderers.get(id)?.getContentMinSize() ?? { w: 40, h: 40 }
+    }
   }
+  return { w: 40, h: 40 }
 }
 
 /**
@@ -1938,6 +1924,47 @@ selection.onChange(items => {
 
 // ─── Canvas mouse events ──────────────────────────────────────────────────────
 
+/** Maps each creation tool to a factory that places the element centred on the cursor. */
+const TOOL_CREATORS: Partial<Record<ToolKind, (pt: DOMPoint) => void>> = {
+  'class':        pt => store.addClass(createUmlClass({ name: 'NewClass',      position: { x: pt.x - 90,  y: pt.y - 60  } })),
+  'package':      pt => store.addPackage(createUmlPackage({ name: 'com.example', position: { x: pt.x - 160, y: pt.y - 120 } })),
+  'storage':      pt => store.addStorage(createStorage({ name: 'DataStore',    position: { x: pt.x - 80,  y: pt.y - 30  } })),
+  'agent':        pt => store.addActor(createActor({ elementType: 'agent',       name: 'Agent', position: { x: pt.x - 60,  y: pt.y - 30  } })),
+  'human-agent':  pt => store.addActor(createActor({ elementType: 'human-agent', name: 'User',  position: { x: pt.x - 40,  y: pt.y - 50  } })),
+  'queue':        pt => store.addQueue(createQueue({ name: 'Queue',             position: { x: pt.x - 80,  y: pt.y - 30  } })),
+  'use-case':     pt => store.addUseCase(createUseCase({ name: 'Use Case',      position: { x: pt.x - 70,  y: pt.y - 30  } })),
+  'uc-actor':     pt => store.addActor(createActor({ elementType: 'uc-actor',    name: 'Actor', position: { x: pt.x - 40,  y: pt.y - 50  } })),
+  'uc-system':    pt => store.addUCSystem(createUCSystem({ name: 'System',       position: { x: pt.x - 130, y: pt.y - 100 } })),
+  'state':        pt => store.addState(createState({ name: 'State',             position: { x: pt.x - 60,  y: pt.y - 22  } })),
+  'start-state':  pt => store.addStartState(createStartState({ position: { x: pt.x - 14, y: pt.y - 14 } })),
+  'end-state':    pt => store.addEndState(createEndState({ position: { x: pt.x - 18, y: pt.y - 18 } })),
+  'seq-diagram':  pt => store.addSequenceDiagram(createSequenceDiagram(pt.x - 150, pt.y - 20)),
+  'seq-fragment': pt => store.addCombinedFragment(createCombinedFragment(pt.x - 100, pt.y - 60)),
+}
+
+// ─── Drag-from-toolbar ────────────────────────────────────────────────────────
+
+const dragGhost = document.createElement('div')
+dragGhost.id = 'toolbar-drag-ghost'
+dragGhost.style.cssText = 'position:fixed;pointer-events:none;display:none;padding:3px 8px;border-radius:4px;font-size:12px;white-space:nowrap;z-index:9999;background:var(--ctp-surface0);border:1px solid var(--ctp-overlay0);color:var(--ctp-text);'
+document.body.appendChild(dragGhost)
+
+let toolbarDragTool: ToolKind | null = null
+
+document.getElementById('toolbar')!.addEventListener('mousedown', e => {
+  const btn = (e.target as Element).closest<HTMLElement>('[data-tool]')
+  if (!btn) return
+  const tool = btn.dataset.tool as ToolKind
+  if (!TOOL_CREATORS[tool]) return
+  e.preventDefault()
+  toolbarDragTool = tool
+  dragGhost.textContent = btn.title.replace(/ \([A-Za-z]\)$/, '')
+  dragGhost.style.display = 'block'
+  dragGhost.style.left = e.clientX + 12 + 'px'
+  dragGhost.style.top  = e.clientY + 12 + 'px'
+})
+
+
 svg.addEventListener('dblclick', e => {
   if (e.button !== 0) return
   const tool = toolbar.activeTool
@@ -1946,62 +1973,8 @@ svg.addEventListener('dblclick', e => {
   const target = e.target as Element
   if (target.closest('[data-id]')) return
 
-  if (tool === 'class') {
-    store.addClass(createUmlClass({ name: 'NewClass', position: { x: pt.x - 90, y: pt.y - 60 } }))
-    return
-  }
-  if (tool === 'package') {
-    store.addPackage(createUmlPackage({ name: 'com.example', position: { x: pt.x - 160, y: pt.y - 120 } }))
-    return
-  }
-  if (tool === 'storage') {
-    store.addStorage(createStorage({ name: 'DataStore', position: { x: pt.x - 80, y: pt.y - 30 } }))
-    return
-  }
-  if (tool === 'agent') {
-    store.addActor(createActor({ elementType: 'agent', name: 'Agent', position: { x: pt.x - 60, y: pt.y - 30 } }))
-    return
-  }
-  if (tool === 'human-agent') {
-    store.addActor(createActor({ elementType: 'human-agent', name: 'User', position: { x: pt.x - 40, y: pt.y - 50 } }))
-    return
-  }
-  if (tool === 'queue') {
-    store.addQueue(createQueue({ name: 'Queue', position: { x: pt.x - 80, y: pt.y - 30 } }))
-    return
-  }
-  if (tool === 'use-case') {
-    store.addUseCase(createUseCase({ name: 'Use Case', position: { x: pt.x - 70, y: pt.y - 30 } }))
-    return
-  }
-  if (tool === 'uc-actor') {
-    store.addActor(createActor({ elementType: 'uc-actor', name: 'Actor', position: { x: pt.x - 40, y: pt.y - 50 } }))
-    return
-  }
-  if (tool === 'uc-system') {
-    store.addUCSystem(createUCSystem({ name: 'System', position: { x: pt.x - 130, y: pt.y - 100 } }))
-    return
-  }
-  if (tool === 'state') {
-    store.addState(createState({ name: 'State', position: { x: pt.x - 60, y: pt.y - 22 } }))
-    return
-  }
-  if (tool === 'start-state') {
-    store.addStartState(createStartState({ position: { x: pt.x - 14, y: pt.y - 14 } }))
-    return
-  }
-  if (tool === 'end-state') {
-    store.addEndState(createEndState({ position: { x: pt.x - 18, y: pt.y - 18 } }))
-    return
-  }
-  if (tool === 'seq-diagram') {
-    store.addSequenceDiagram(createSequenceDiagram(pt.x - 150, pt.y - 20))
-    return
-  }
-  if (tool === 'seq-fragment') {
-    store.addCombinedFragment(createCombinedFragment(pt.x - 100, pt.y - 60))
-    return
-  }
+  const creator = TOOL_CREATORS[tool as ToolKind]
+  if (creator) creator(pt)
 })
 
 // ─── Rubber-band selection ────────────────────────────────────────────────────
@@ -2040,6 +2013,11 @@ svg.addEventListener('mousedown', e => {
 })
 
 window.addEventListener('mousemove', e => {
+  if (toolbarDragTool) {
+    dragGhost.style.left = e.clientX + 12 + 'px'
+    dragGhost.style.top  = e.clientY + 12 + 'px'
+    return
+  }
   if (drag.isDragging)      drag.onMouseMove(e)
   if (resize.isResizing)    resize.onMouseMove(e)
   if (connect.isConnecting) connect.onMouseMove(e)
@@ -2086,6 +2064,17 @@ svg.addEventListener('mousemove', e => {
 })
 
 window.addEventListener('mouseup', e => {
+  if (toolbarDragTool) {
+    dragGhost.style.display = 'none'
+    const tool = toolbarDragTool
+    toolbarDragTool = null
+    const svgRect = svg.getBoundingClientRect()
+    if (e.clientX >= svgRect.left && e.clientX <= svgRect.right &&
+        e.clientY >= svgRect.top  && e.clientY <= svgRect.bottom) {
+      TOOL_CREATORS[tool]!(getSvgPoint(e))
+    }
+    return
+  }
   if (drag.isDragging)   { drag.onMouseUp(); return }
   if (resize.isResizing) { resize.onMouseUp(); return }
   if (rubberBanding) {
@@ -2305,6 +2294,7 @@ function applyViewport() {
   dismissConnPopover = null
   document.getElementById('conn-popover')?.remove()
   document.getElementById('msg-popover')?.remove()
+  hideElementPropertiesPanel()
 }
 
 // ─── Build initial diagram ────────────────────────────────────────────────────

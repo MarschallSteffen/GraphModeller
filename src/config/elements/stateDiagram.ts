@@ -33,5 +33,6 @@ export const endStateConfig: ElementConfig = {
     asSource: [],
     asTarget: ['transition'],
   },
+  preferredConnectionType: 'transition',
   supportsMultiplicity: false,
 }

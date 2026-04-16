@@ -1,6 +1,5 @@
 import type { SequenceMessage } from '../entities/SequenceLifeline.ts'
-
-const S = (d: string) => `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`
+import { svgIcon as S } from './svgIcon.ts'
 
 export function showMsgPopover(
   screenX: number,
@@ -25,7 +24,7 @@ export function showMsgPopover(
 
   const kindButtons = KINDS.map(k => `
     <button class="conn-type-btn msg-kind-btn${msg.kind === k.kind ? ' active' : ''}"
-            data-kind="${k.kind}" title="${k.label}">${k.icon}</button>
+            data-kind="${k.kind}" title="${k.label}" aria-label="${k.label}">${k.icon}</button>
   `).join('')
 
   const popover = document.createElement('div')

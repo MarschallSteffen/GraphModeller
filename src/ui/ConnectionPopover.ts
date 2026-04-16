@@ -1,10 +1,8 @@
 import type { ConnectionType, Multiplicity, ElbowMode } from '../entities/Connection.ts'
 import type { ElementConfig } from '../config/ElementConfig.ts'
+import { svgIcon as S } from './svgIcon.ts'
 
 const MULTIPLICITIES: Multiplicity[] = ['', '1', '0..1', '*', '1..*', '0..*']
-
-// Inline SVG icon helper (16x16 viewBox)
-const S = (d: string) => `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`
 
 // All connection type icons in display order
 const ALL_TYPE_ICONS: Array<{ type: ConnectionType; icon: string; label: string }> = [
@@ -105,12 +103,12 @@ export function showConnectionPopover(
   // Build type icon buttons from the allowed types in display order
   const available = ALL_TYPE_ICONS.filter(x => types.includes(x.type))
   const typeButtonsHtml = available.map(({ type, icon, label }) => `
-    <button class="conn-type-btn${activeType === type ? ' active' : ''}" data-type="${type}" title="${label}">${icon}</button>
+    <button class="conn-type-btn${activeType === type ? ' active' : ''}" data-type="${type}" title="${label}" aria-label="${label}">${icon}</button>
   `).join('')
 
   // Flip button: shown only for directed connection types
   const showFlip = onFlip && activeType !== 'read-write' && activeType !== 'plain'
-  const flipBtn = showFlip ? `<button class="conn-flip-btn" title="Flip / reverse arrow direction">${S('<path d="M4 5l-3 3 3 3"/><path d="M12 5l3 3-3 3"/><line x1="1" y1="8" x2="15" y2="8"/>')}</button>` : ''
+  const flipBtn = showFlip ? `<button class="conn-flip-btn" title="Flip / reverse arrow direction" aria-label="Flip / reverse arrow direction">${S('<path d="M4 5l-3 3 3 3"/><path d="M12 5l3 3-3 3"/><line x1="1" y1="8" x2="15" y2="8"/>')}</button>` : ''
 
   const multHtml = showMultiplicity ? `
     <div class="popover-section-label">Multiplicity</div>
@@ -129,9 +127,9 @@ export function showConnectionPopover(
   const elbowHtml = onElbowChange ? `
     <div class="popover-section-label">Routing</div>
     <div class="conn-elbow-row">
-      <button class="conn-elbow-btn${activeElbow === 'auto' ? ' active' : ''}" data-elbow="auto" title="Auto route">${S('<circle cx="8" cy="8" r="2"/><line x1="8" y1="2" x2="8" y2="5"/><line x1="8" y1="11" x2="8" y2="14"/><line x1="2" y1="8" x2="5" y2="8"/><line x1="11" y1="8" x2="14" y2="8"/>')}</button>
-      <button class="conn-elbow-btn${activeElbow === 'min'  ? ' active' : ''}" data-elbow="min"  title="Force lower-left corner">${S('<polyline points="4,2 4,12 14,12"/>')}</button>
-      <button class="conn-elbow-btn${activeElbow === 'max'  ? ' active' : ''}" data-elbow="max"  title="Force upper-right corner">${S('<polyline points="2,4 12,4 12,14"/>')}</button>
+      <button class="conn-elbow-btn${activeElbow === 'auto' ? ' active' : ''}" data-elbow="auto" title="Auto route" aria-label="Auto route">${S('<circle cx="8" cy="8" r="2"/><line x1="8" y1="2" x2="8" y2="5"/><line x1="8" y1="11" x2="8" y2="14"/><line x1="2" y1="8" x2="5" y2="8"/><line x1="11" y1="8" x2="14" y2="8"/>')}</button>
+      <button class="conn-elbow-btn${activeElbow === 'min'  ? ' active' : ''}" data-elbow="min"  title="Force lower-left corner" aria-label="Force lower-left corner">${S('<polyline points="4,2 4,12 14,12"/>')}</button>
+      <button class="conn-elbow-btn${activeElbow === 'max'  ? ' active' : ''}" data-elbow="max"  title="Force upper-right corner" aria-label="Force upper-right corner">${S('<polyline points="2,4 12,4 12,14"/>')}</button>
     </div>
   ` : ''
 

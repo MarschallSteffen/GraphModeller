@@ -131,5 +131,8 @@ export function loadSavedTheme() {
   applyTheme(saved ?? 'mocha')
 }
 
-/** Latte palette exported for use in PNG export (always renders in light theme). */
-export const LATTE = palettes.latte
+/** Palettes exported for programmatic use (e.g. theme dot colors, PNG export). */
+export const LATTE     = palettes.latte
+export const FRAPPE    = palettes.frappe
+export const MACCHIATO = palettes.macchiato
+export const MOCHA     = palettes.mocha
