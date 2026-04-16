@@ -83,6 +83,7 @@ export class ResizeController {
     }
     this.startMouseX = pt.x
     this.startMouseY = pt.y
+    this.store.beginUndoGroup()
   }
 
   onMouseMove(e: MouseEvent) {
@@ -107,7 +108,7 @@ export class ResizeController {
     })
   }
 
-  onMouseUp() { this.active = null }
+  onMouseUp() { this.active = null; this.store.endUndoGroup() }
 
   get isResizing() { return this.active !== null }
 }

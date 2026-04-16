@@ -63,6 +63,7 @@ export class DragController {
 
     this.startMouseX = pt.x
     this.startMouseY = pt.y
+    this.store.beginUndoGroup()
   }
 
   onMouseMove(e: MouseEvent) {
@@ -109,6 +110,7 @@ export class DragController {
   onMouseUp() {
     this.active = []
     this.onGuides([])
+    this.store.endUndoGroup()
   }
 
   get isDragging() { return this.active.length > 0 }

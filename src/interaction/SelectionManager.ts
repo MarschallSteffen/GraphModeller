@@ -32,6 +32,11 @@ export class SelectionManager {
     this.notify()
   }
 
+  setAll(items: Selectable[]) {
+    this.selected = [...items]
+    this.notify()
+  }
+
   isSelected(id: string) {
     return this.selected.some(s => s.id === id)
   }

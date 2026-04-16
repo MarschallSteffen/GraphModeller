@@ -49,6 +49,7 @@ export class SequenceLifelineRenderer {
 
   computedW = MIN_W
   computedH = HEADER_H + MSG_ROW_H
+  private spineBottom = HEADER_H + MSG_ROW_H
 
   constructor(
     private ll: SequenceLifeline,
@@ -153,6 +154,7 @@ export class SequenceLifelineRenderer {
 
   /** Extend the spine and drop-hit rect to a diagram-wide uniform height. */
   setSpineBottom(y: number) {
+    this.spineBottom = y
     this.spine.setAttribute('y2', String(y))
     this.dropHitRect.setAttribute('height', String(y - HEADER_H))
   }
@@ -361,7 +363,7 @@ export class SequenceLifelineRenderer {
   getBarHalfW(): number { return BAR_HALF }
 
   getContainer(): SVGGElement { return this.el }
-  getRenderedSize(): { w: number; h: number } { return { w: this.computedW, h: this.computedH } }
+  getRenderedSize(): { w: number; h: number } { return { w: this.computedW, h: Math.max(this.computedH, this.spineBottom) } }
   getContentMinSize(): { w: number; h: number } {
     return { w: Math.max(MIN_W, estimateTextWidth(this.ll.name)), h: HEADER_H + MSG_ROW_H }
   }

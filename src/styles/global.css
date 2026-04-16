@@ -29,6 +29,9 @@ body {
   position: relative;
   margin-left: 56px;
 }
+.titlebar-menu--edit {
+  margin-left: 4px;
+}
 
 .titlebar-menu-btn {
   height: 28px;

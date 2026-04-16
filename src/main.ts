@@ -22,6 +22,7 @@ import { SelectionManager } from './interaction/SelectionManager.ts'
 import { InlineEditor } from './interaction/InlineEditor.ts'
 import { Toolbar, type Tool as ToolKind } from './ui/Toolbar.ts'
 import { FileMenu } from './ui/FileMenu.ts'
+import { EditMenu } from './ui/EditMenu.ts'
 import { showConnectionPopover } from './ui/ConnectionPopover.ts'
 import { showMsgPopover } from './ui/MessagePopover.ts'
 import { showElementPropertiesPanel, hideElementPropertiesPanel } from './ui/ElementPropertiesPanel.ts'
@@ -134,6 +135,45 @@ const fileMenuCallbacks = {
 }
 
 const fileMenu = new FileMenu(document.getElementById('titlebar')!, fileMenuCallbacks)
+
+// Insert Edit menu between File button and title input
+const editMenuAnchor = document.createElement('div')
+editMenuAnchor.style.display = 'contents'
+const titlebar = document.getElementById('titlebar')!
+titlebar.insertBefore(editMenuAnchor, titlebar.children[1])
+
+function deleteSelection() {
+  selection.items.forEach(item => {
+    if (item.kind === 'connection') { store.removeConnection(item.id); return }
+    const desc = ELEMENTS.find(d => d.kind === item.kind)
+    if (desc) desc.remove(item.id)
+  })
+  selection.clear()
+}
+
+function selectAll() {
+  const items: import('./interaction/SelectionManager.ts').Selectable[] = []
+  for (const desc of ELEMENTS) {
+    const col = (store.state as any)[desc.collection] as Array<{ id: string }>
+    if (!col) continue
+    for (const el of col) items.push({ kind: desc.kind, id: el.id })
+  }
+  for (const conn of store.state.connections) items.push({ kind: 'connection', id: conn.id })
+  selection.setAll(items)
+}
+
+const editMenu = new EditMenu(editMenuAnchor, {
+  onUndo:      () => { store.undo(); updateEditMenu() },
+  onRedo:      () => { store.redo(); updateEditMenu() },
+  onSelectAll: () => selectAll(),
+  onDelete:    () => deleteSelection(),
+})
+
+function updateEditMenu() {
+  editMenu.setHistoryState(store.canUndo, store.canRedo)
+}
+
+store.on(ev => { if (ev.type === 'history:change') updateEditMenu() })
 
 // Initialise title from loaded diagram
 fileMenu.setTitle(store.state.name ?? 'Untitled')
@@ -2112,13 +2152,17 @@ window.addEventListener('mouseup', e => {
 
 document.addEventListener('keydown', e => {
   if ((e.target as HTMLElement).tagName === 'INPUT') return
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+    e.preventDefault(); store.undo(); updateEditMenu(); return
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+    e.preventDefault(); store.redo(); updateEditMenu(); return
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+    e.preventDefault(); selectAll(); return
+  }
   if (e.key !== 'Delete' && e.key !== 'Backspace') return
-  selection.items.forEach(item => {
-    if (item.kind === 'connection') { store.removeConnection(item.id); return }
-    const desc = ELEMENTS.find(d => d.kind === item.kind)
-    if (desc) desc.remove(item.id)
-  })
-  selection.clear()
+  deleteSelection()
 })
 
 // ─── Copy / Paste ─────────────────────────────────────────────────────────────
