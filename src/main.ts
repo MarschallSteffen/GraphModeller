@@ -2189,8 +2189,9 @@ type ClipboardEntry =
   | { kind: 'seq-diagram';  data: SequenceDiagram }
   | { kind: 'seq-fragment'; data: CombinedFragment }
 
-// Simple clipboard — array of deep-cloned entity snapshots (no connections)
+// Simple clipboard — array of deep-cloned entity snapshots + connections between them
 let clipboard: ClipboardEntry[] = []
+let clipboardConnections: Connection[] = []
 
 const PASTE_OFFSET = 20
 
@@ -2202,13 +2203,20 @@ document.addEventListener('keydown', e => {
   if (mod && e.key === 'c') {
     const d = store.state
     clipboard = []
+    clipboardConnections = []
+    const selectedIds = new Set(selection.items.map(i => i.id))
     for (const item of selection.items) {
       const desc = ELEMENTS.find(d => d.kind === item.kind)
       if (!desc) continue
       const items = (d[desc.collection] as Array<{ id: string }>) ?? []
       const el = items.find(e => e.id === item.id)
       if (el) clipboard.push({ kind: desc.kind, data: JSON.parse(JSON.stringify(el)) } as ClipboardEntry)
-      // connections are intentionally excluded
+    }
+    // Include connections where both endpoints are selected
+    for (const conn of d.connections) {
+      if (selectedIds.has(conn.source.elementId) && selectedIds.has(conn.target.elementId)) {
+        clipboardConnections.push(JSON.parse(JSON.stringify(conn)))
+      }
     }
   }
 
@@ -2216,8 +2224,11 @@ document.addEventListener('keydown', e => {
     if (clipboard.length === 0) return
     e.preventDefault()
     selection.clear()
+    // Map old id → new id for remapping connections
+    const idMap = new Map<string, string>()
     for (const entry of clipboard) {
       const newId = crypto.randomUUID()
+      idMap.set(entry.data.id, newId)
       const pos = {
         x: entry.data.position.x + PASTE_OFFSET,
         y: entry.data.position.y + PASTE_OFFSET,
@@ -2227,6 +2238,19 @@ document.addEventListener('keydown', e => {
         const copy = { ...entry.data, id: newId, position: pos }
         desc.add(copy)
         selection.select({ kind: desc.kind, id: newId }, true)
+      }
+    }
+    // Paste connections with remapped endpoints
+    for (const conn of clipboardConnections) {
+      const newSrc = idMap.get(conn.source.elementId)
+      const newTgt = idMap.get(conn.target.elementId)
+      if (newSrc && newTgt) {
+        store.addConnection({
+          ...conn,
+          id: crypto.randomUUID(),
+          source: { ...conn.source, elementId: newSrc },
+          target: { ...conn.target, elementId: newTgt },
+        })
       }
     }
     // Shift clipboard so repeated pastes cascade rather than stack
