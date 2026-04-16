@@ -58,6 +58,7 @@ export function showMsgPopover(
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') dismiss()
     if (e.key === 'Delete' || e.key === 'Backspace') {
+      if ((e.target as HTMLElement).tagName === 'INPUT') return
       e.preventDefault()
       onDelete()
       dismiss()
