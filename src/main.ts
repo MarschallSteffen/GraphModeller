@@ -24,7 +24,8 @@ import { Toolbar, type Tool as ToolKind } from './ui/Toolbar.ts'
 import { FileMenu } from './ui/FileMenu.ts'
 import { EditMenu } from './ui/EditMenu.ts'
 import { AiPromptButton } from './ui/AiPromptButton.ts'
-import { Dashboard, addRecentFile, getRecentFiles, injectPersistence } from './ui/Dashboard.ts'
+import { saveHandle, loadHandle } from './serialization/fileHandleStore.ts'
+import { Dashboard, addRecentFile, getRecentFiles, injectPersistence, injectHandleStore } from './ui/Dashboard.ts'
 import { showConnectionPopover } from './ui/ConnectionPopover.ts'
 import { showMsgPopover } from './ui/MessagePopover.ts'
 import { showElementPropertiesPanel, hideElementPropertiesPanel } from './ui/ElementPropertiesPanel.ts'
@@ -68,6 +69,7 @@ import type { ElbowMode } from './entities/Connection.ts'
 
 loadSavedTheme()
 injectPersistence({ deserializeV2 })
+injectHandleStore({ loadHandle })
 
 const svg = document.getElementById('canvas') as unknown as SVGSVGElement
 injectMarkerDefs(svg)
@@ -96,13 +98,15 @@ const fileMenuCallbacks = {
       saveDiagram(d)
       fileMenu.setTitle(d.name ?? 'Untitled')
       fileMenu.setFileIndicator(getActiveFileName())
-      addRecentFile({
+      const entry = {
         id: d.id,
         name: d.name || 'Untitled',
         filename: handle?.name ?? null,
         timestamp: Date.now(),
         data: rawJson,
-      })
+      }
+      addRecentFile(entry)
+      if (handle) saveHandle(d.id, handle).catch(() => {})
       hideDashboard()
     })
   },
@@ -211,27 +215,26 @@ const dashboard = new Dashboard({
       saveDiagram(d)
       fileMenu.setTitle(d.name ?? 'Untitled')
       fileMenu.setFileIndicator(getActiveFileName())
-      addRecentFile({
+      const entry = {
         id: d.id,
         name: d.name || 'Untitled',
         filename: handle?.name ?? null,
         timestamp: Date.now(),
         data: rawJson,
-      })
+      }
+      addRecentFile(entry)
+      if (handle) saveHandle(d.id, handle).catch(() => {})
       hideDashboard()
     })
   },
-  onResume: (file, handle) => {
-    try {
-      const parsed = JSON.parse(file.data)
-      const d = deserializeV2(parsed)
-      if (handle) setActiveFileHandle(handle)
-      store.load(d)
-      saveDiagram(d)
-      fileMenu.setTitle(d.name ?? 'Untitled')
-      fileMenu.setFileIndicator(handle?.name ?? null)
-      hideDashboard()
-    } catch { /* corrupt entry */ }
+  onResume: (_file, d, handle) => {
+    closeActiveFile()
+    if (handle) setActiveFileHandle(handle)
+    store.load(d)
+    saveDiagram(d)
+    fileMenu.setTitle(d.name ?? 'Untitled')
+    fileMenu.setFileIndicator(handle?.name ?? null)
+    hideDashboard()
   },
 })
 appEl.appendChild(dashboard.el)
@@ -2270,7 +2273,48 @@ document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
     e.preventDefault(); selectAll(); return
   }
-  if (e.key !== 'Delete' && e.key !== 'Backspace') return
+  if (e.key !== 'Delete' && e.key !== 'Backspace') {
+    // Arrow key nudge
+    const dx = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0
+    const dy = e.key === 'ArrowUp'   ? -1 : e.key === 'ArrowDown'  ? 1 : 0
+    if ((dx !== 0 || dy !== 0) && selection.items.length > 0) {
+      e.preventDefault()
+      store.beginUndoGroup()
+
+      // Build the full set of element ids to move, mirroring DragController container logic
+      const CONTAINER_KINDS = new Set<string>(['package', 'uc-system', 'seq-fragment'])
+      const elementItems = selection.items.filter(i => i.kind !== 'connection') as Array<{ kind: ElementKind; id: string }>
+      const toMove = new Map<string, { kind: ElementKind; id: string }>()
+      for (const item of elementItems) toMove.set(item.id, item)
+
+      // If a single container is selected alone, also move its children
+      if (elementItems.length === 1 && CONTAINER_KINDS.has(elementItems[0].kind)) {
+        for (const child of getContainedElements(elementItems[0].id)) {
+          if (!toMove.has(child.id)) toMove.set(child.id, child)
+        }
+      }
+
+      for (const item of toMove.values()) {
+        const el = store.findElementById(item.kind, item.id)
+        if (!el) continue
+        let x = el.position.x + dx
+        let y = el.position.y + dy
+        if (e.shiftKey) {
+          x = dx !== 0
+            ? (dx > 0 ? Math.ceil((el.position.x + 1) / 10) * 10 : Math.floor((el.position.x - 1) / 10) * 10)
+            : el.position.x
+          y = dy !== 0
+            ? (dy > 0 ? Math.ceil((el.position.y + 1) / 10) * 10 : Math.floor((el.position.y - 1) / 10) * 10)
+            : el.position.y
+        }
+        store.updateElementPosition(item.kind, item.id, { position: { x, y }, size: el.size })
+      }
+      store.endUndoGroup()
+      saveDiagram(store.state)
+      refreshConnections()
+    }
+    return
+  }
   deleteSelection()
 })
 

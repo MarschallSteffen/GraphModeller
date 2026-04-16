@@ -9,7 +9,7 @@ export interface RecentFile {
 export interface DashboardCallbacks {
   onNew:    () => void
   onOpen:   () => void
-  onResume: (file: RecentFile, handle: FileSystemFileHandle | null) => void
+  onResume: (file: RecentFile, diagram: import('../entities/Diagram.ts').Diagram, handle: FileSystemFileHandle | null) => void
 }
 
 export class Dashboard {
@@ -47,7 +47,7 @@ export class Dashboard {
     )
 
     const openBtn = this.makeActionCard(
-      `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h5l2 3h11v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7z"/><path d="M3 7V5a1 1 0 0 1 1-1h4"/></svg>`,
+      `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
       'Open file…',
       'Load a .json diagram file',
       callbacks.onOpen,
@@ -122,45 +122,43 @@ export class Dashboard {
   }
 
   private async resumeFile(file: RecentFile) {
-    const callbacks = this.callbacks
-    // If we know the filename, try to open a file picker pre-named so the
-    // user can confirm the file — if they pick it we get a writable handle.
-    // On cancel, fall back to the stored JSON snapshot.
-    if (file.filename && 'showOpenFilePicker' in window) {
+    // Try to reuse the stored FileSystemFileHandle (no full open dialog).
+    if ('showOpenFilePicker' in window && _handleStore) {
       try {
-        const [handle] = await (window as any).showOpenFilePicker({
-          types: [{ description: 'Diagram JSON', accept: { 'application/json': ['.json'] } }],
-          multiple: false,
-        })
-        // User picked a file — use it (may or may not be the same file)
-        const text = await handle.getFile().then((f: File) => f.text())
-        const parsed = JSON.parse(text)
-        const { deserializeV2 } = _persistence!
-        const diagram = deserializeV2(parsed)
-        const updated: RecentFile = {
-          ...file,
-          name: diagram.name || file.name,
-          filename: handle.name,
-          timestamp: Date.now(),
-          data: text,
+        const handle = await _handleStore.loadHandle(file.id)
+        if (handle) {
+          // Check / request permission — may show a small browser prompt, not a picker.
+          let perm = await (handle as any).queryPermission({ mode: 'readwrite' })
+          if (perm === 'prompt') {
+            perm = await (handle as any).requestPermission({ mode: 'readwrite' })
+          }
+          if (perm === 'granted') {
+            const text = await handle.getFile().then((f: File) => f.text())
+            const parsed = JSON.parse(text)
+            const { deserializeV2 } = _persistence!
+            const diagram = deserializeV2(parsed)
+            const updated: RecentFile = {
+              ...file,
+              name: diagram.name || file.name,
+              filename: handle.name,
+              timestamp: Date.now(),
+              data: text,
+            }
+            addRecentFile(updated)
+            this.callbacks.onResume(updated, diagram, handle)
+            return
+          }
         }
-        addRecentFile(updated)
-        callbacks.onResume(updated, handle)
-        return
-      } catch (err: unknown) {
-        // AbortError = user cancelled → fall through to JSON fallback
-        if (err instanceof DOMException && err.name !== 'AbortError') throw err
-        if (!(err instanceof DOMException)) throw err
-      }
+      } catch { /* fall through to JSON restore */ }
     }
-    // Fallback: restore from stored JSON
+    // Fallback: restore from stored JSON snapshot.
     try {
       const parsed = JSON.parse(file.data)
       const { deserializeV2 } = _persistence!
       const diagram = deserializeV2(parsed)
       const updated: RecentFile = { ...file, name: diagram.name || file.name, timestamp: Date.now() }
       addRecentFile(updated)
-      callbacks.onResume(updated, null)
+      this.callbacks.onResume(updated, diagram, null)
     } catch { /* corrupt entry — ignore */ }
   }
 
@@ -192,7 +190,7 @@ export class Dashboard {
         timestamp: Date.now(),
         data,
       }
-      onResume(file, null)
+      onResume(file, diagram, null)
     } catch (e) {
       console.error('Failed to load sample', e)
     }
@@ -204,6 +202,9 @@ export class Dashboard {
 // Lazy import reference injected from main.ts to avoid circular deps
 let _persistence: { deserializeV2: (raw: Record<string, unknown>) => import('../entities/Diagram.ts').Diagram } | null = null
 export function injectPersistence(p: typeof _persistence) { _persistence = p }
+
+let _handleStore: { loadHandle: (id: string) => Promise<FileSystemFileHandle | null> } | null = null
+export function injectHandleStore(s: typeof _handleStore) { _handleStore = s }
 
 const LS_RECENT = 'archetype:recent-files'
 const MAX_RECENT = 10

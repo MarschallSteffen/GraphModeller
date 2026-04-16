@@ -8,8 +8,8 @@
       "id": "cls-diagram",
       "name": "Diagram",
       "position": {
-        "x": 1235.6953125,
-        "y": 85.97480773925781
+        "x": 1228.427490234375,
+        "y": 87.79176330566406
       },
       "size": {
         "w": 220,
@@ -26,8 +26,8 @@
       "id": "cls-connection",
       "name": "Connection",
       "position": {
-        "x": 1235.6953125,
-        "y": 511.5072937011719
+        "x": 1228.427490234375,
+        "y": 513.3242492675781
       },
       "size": {
         "w": 220,
@@ -48,8 +48,8 @@
       "id": "cls-element",
       "name": "DiagramElement",
       "position": {
-        "x": 2182.8162841796875,
-        "y": 381.5516357421875
+        "x": 2175.5484619140625,
+        "y": 383.36859130859375
       },
       "size": {
         "w": 200,
@@ -68,8 +68,8 @@
       "id": "cls-umlclass",
       "name": "UmlClass",
       "position": {
-        "x": 1659.7923583984375,
-        "y": 583.1268005371094
+        "x": 1652.5245361328125,
+        "y": 584.9437561035156
       },
       "size": {
         "w": 200,
@@ -87,8 +87,8 @@
       "id": "cls-actor",
       "name": "Actor",
       "position": {
-        "x": 1873.308837890625,
-        "y": 219.45094299316406
+        "x": 1866.041015625,
+        "y": 221.2678985595703
       },
       "size": {
         "w": 180,
@@ -106,8 +106,8 @@
       "id": "cls-seqdiagram",
       "name": "SequenceDiagram",
       "position": {
-        "x": 2504.7392578125,
-        "y": 85.23263549804688
+        "x": 2497.471435546875,
+        "y": 87.04959106445312
       },
       "size": {
         "w": 210,
@@ -122,8 +122,8 @@
       "id": "cls-lifeline",
       "name": "SequenceLifeline",
       "position": {
-        "x": 2504.7392578125,
-        "y": 386.5516357421875
+        "x": 2497.471435546875,
+        "y": 388.36859130859375
       },
       "size": {
         "w": 210,
@@ -166,8 +166,8 @@
       "id": "pkg-entities",
       "name": "entities",
       "position": {
-        "x": 1195.6953125,
-        "y": 60
+        "x": 1189.732177734375,
+        "y": 61.81695556640625
       },
       "size": {
         "w": 1551.656005859375,
@@ -179,8 +179,8 @@
       "id": "tam-localstorage",
       "name": "localStorage",
       "position": {
-        "x": 842.8218994140625,
-        "y": 905.791748046875
+        "x": 102.19140625,
+        "y": 1173.6939086914062
       },
       "size": {
         "w": 140,
@@ -192,8 +192,8 @@
       "id": "tam-user",
       "name": "User",
       "position": {
-        "x": -223.67906188964844,
-        "y": 760
+        "x": -716.4714508056641,
+        "y": 966.9727783203125
       },
       "size": {
         "w": 80,
@@ -205,8 +205,8 @@
       "id": "tam-toolbar",
       "name": "Toolbar",
       "position": {
-        "x": -113.56336975097656,
-        "y": 551.2877807617188
+        "x": -584.5524749755859,
+        "y": 889.0803833007812
       },
       "size": {
         "w": 120,
@@ -218,8 +218,8 @@
       "id": "tam-canvas",
       "name": "SVG Canvas",
       "position": {
-        "x": -41.896361351013184,
-        "y": 905.791748046875
+        "x": -584.5524749755859,
+        "y": 1111.4171142578125
       },
       "size": {
         "w": 120,
@@ -231,8 +231,8 @@
       "id": "tam-interaction",
       "name": "Interaction Layer",
       "position": {
-        "x": 306.7666320800781,
-        "y": 780
+        "x": -340.2920227050781,
+        "y": 986.9727783203125
       },
       "size": {
         "w": 140,
@@ -244,8 +244,8 @@
       "id": "tam-store",
       "name": "DiagramStore",
       "position": {
-        "x": 861.6876220703125,
-        "y": 748.234375
+        "x": 123.08633232116699,
+        "y": 997.1442260742188
       },
       "size": {
         "w": 140,
@@ -257,8 +257,8 @@
       "id": "tam-renderers",
       "name": "Renderer Layer",
       "position": {
-        "x": 306.7666320800781,
-        "y": 920
+        "x": -340.2920227050781,
+        "y": 1121.4171142578125
       },
       "size": {
         "w": 140,
@@ -283,8 +283,8 @@
       "id": "tam-events",
       "name": "Store Events",
       "position": {
-        "x": 585.5945434570312,
-        "y": 930
+        "x": -111.81585693359375,
+        "y": 1127.4171142578125
       },
       "size": {
         "w": 120,
@@ -431,7 +431,7 @@
         "y": 1091.02734375
       },
       "size": {
-        "w": 1121.0140380859375,
+        "w": 715.5528564453125,
         "h": 804.1475830078125
       }
     },
@@ -440,8 +440,8 @@
       "id": "c2934f6f-2e94-431e-bb4d-44724e3857ab",
       "name": "Idle",
       "position": {
-        "x": -86.2159194946289,
-        "y": 117.33709716796875
+        "x": -445,
+        "y": 68
       },
       "size": {
         "w": 120,
@@ -453,8 +453,8 @@
       "id": "85bd05e7-87f6-4e01-8eb9-9d48f2fcf720",
       "name": "Element Selected",
       "position": {
-        "x": 131.0928955078125,
-        "y": 120
+        "x": -245.43827056884766,
+        "y": 382.5354919433594
       },
       "size": {
         "w": 120,
@@ -466,8 +466,8 @@
       "id": "13d4b5fe-8905-49df-ad17-45290b92da1f",
       "name": "Multi-Selected",
       "position": {
-        "x": 331.0928955078125,
-        "y": 120
+        "x": 9.832328796386719,
+        "y": -119.50606727600098
       },
       "size": {
         "w": 120,
@@ -479,8 +479,8 @@
       "id": "70075a6d-f4aa-450a-a882-3abf0dde135b",
       "name": "Dragging",
       "position": {
-        "x": 531.0928955078125,
-        "y": 120
+        "x": 447.03546142578125,
+        "y": -14.722157716751099
       },
       "size": {
         "w": 120,
@@ -492,8 +492,8 @@
       "id": "43f161c5-86e1-46fe-9ea9-4dbabb6ca305",
       "name": "Resizing",
       "position": {
-        "x": 331.0928955078125,
-        "y": 224
+        "x": 217.89263916015625,
+        "y": 231.8617706298828
       },
       "size": {
         "w": 120,
@@ -505,8 +505,8 @@
       "id": "1346b43c-e4cc-4f22-a7a1-ae87e1b482b9",
       "name": "Connecting",
       "position": {
-        "x": 331.0928955078125,
-        "y": 328
+        "x": 163.0419158935547,
+        "y": 668.3371276855469
       },
       "size": {
         "w": 120,
@@ -518,8 +518,8 @@
       "id": "26d175a7-4366-4e67-814f-32a1242af533",
       "name": "Panning",
       "position": {
-        "x": 131.0928955078125,
-        "y": 224
+        "x": -606.3557586669922,
+        "y": -132.8047103881836
       },
       "size": {
         "w": 120,
@@ -531,8 +531,8 @@
       "id": "1cee6481-3179-45a9-8ea9-2c4b1e2d4cc4",
       "name": "Inline Editing",
       "position": {
-        "x": 331.0928955078125,
-        "y": 432
+        "x": 447.03546142578125,
+        "y": 569.5072937011719
       },
       "size": {
         "w": 120,
@@ -544,8 +544,8 @@
       "id": "5125d66f-f49c-44a9-a51d-86124f2c0c2b",
       "name": "Connection Popover",
       "position": {
-        "x": 331.0928955078125,
-        "y": 536
+        "x": -393.14525604248047,
+        "y": 530.7164001464844
       },
       "size": {
         "w": 120,
@@ -556,8 +556,8 @@
       "type": "start-state",
       "id": "a7e9e266-6f76-4ff2-9e68-64d80e6727b8",
       "position": {
-        "x": -180.9071044921875,
-        "y": 120
+        "x": -679.4942626953125,
+        "y": 73.94114685058594
       },
       "size": {
         "w": 32,
@@ -568,8 +568,8 @@
       "type": "end-state",
       "id": "491fdad7-9b7a-46b7-897d-1441a0917525",
       "position": {
-        "x": 131.0928955078125,
-        "y": 328
+        "x": 90.79139709472656,
+        "y": 72
       },
       "size": {
         "w": 36,
@@ -580,12 +580,12 @@
       "type": "seq-diagram",
       "id": "seq-main",
       "position": {
-        "x": 80,
-        "y": 1740
+        "x": 70.1441650390625,
+        "y": 1884.552490234375
       },
       "size": {
         "w": 960,
-        "h": 560
+        "h": 640
       },
       "lifelines": [
         {
@@ -751,6 +751,13 @@
               "targetLifelineId": "ll-persistence",
               "kind": "async",
               "slotIndex": 11
+            },
+            {
+              "id": "84f0c3c4-3678-4fb0-a916-c3bbb5ccc0c3",
+              "label": "message",
+              "targetLifelineId": "ll-user",
+              "kind": "return",
+              "slotIndex": 13
             }
           ],
           "position": {
@@ -862,7 +869,8 @@
       "id": "t-store-events",
       "source": "tam-store",
       "target": "tam-events",
-      "type": "write"
+      "type": "write",
+      "elbowMode": "min"
     },
     {
       "id": "t-events-renderers",
@@ -975,7 +983,8 @@
       "source": "c2934f6f-2e94-431e-bb4d-44724e3857ab",
       "target": "26d175a7-4366-4e67-814f-32a1242af533",
       "type": "transition",
-      "label": "H key / middle-drag"
+      "label": "H key / middle-drag",
+      "elbowMode": "min"
     },
     {
       "id": "49f48d8b-e297-4dbc-92b8-ff7b8954318d",
@@ -996,7 +1005,8 @@
       "source": "85bd05e7-87f6-4e01-8eb9-9d48f2fcf720",
       "target": "43f161c5-86e1-46fe-9ea9-4dbabb6ca305",
       "type": "transition",
-      "label": "grab resize handle"
+      "label": "grab resize handle",
+      "elbowMode": "max"
     },
     {
       "id": "861c7579-c2f2-4af6-95aa-4262113342bb",
@@ -1010,7 +1020,8 @@
       "source": "85bd05e7-87f6-4e01-8eb9-9d48f2fcf720",
       "target": "1cee6481-3179-45a9-8ea9-2c4b1e2d4cc4",
       "type": "transition",
-      "label": "double-click"
+      "label": "double-click",
+      "elbowMode": "max"
     },
     {
       "id": "f7aca919-27f5-403f-8b98-750ec1b4a616",
@@ -1045,7 +1056,8 @@
       "source": "70075a6d-f4aa-450a-a882-3abf0dde135b",
       "target": "85bd05e7-87f6-4e01-8eb9-9d48f2fcf720",
       "type": "transition",
-      "label": "mouseup"
+      "label": "mouseup",
+      "elbowMode": "max"
     },
     {
       "id": "5ec00349-c57b-45cb-875d-915c1ddc433f",
@@ -1059,7 +1071,8 @@
       "source": "1346b43c-e4cc-4f22-a7a1-ae87e1b482b9",
       "target": "85bd05e7-87f6-4e01-8eb9-9d48f2fcf720",
       "type": "transition",
-      "label": "drop on target"
+      "label": "drop on target",
+      "elbowMode": "max"
     },
     {
       "id": "79c03dc6-1ebb-45d6-88a5-e6fbd0a202e5",
@@ -1087,7 +1100,8 @@
       "source": "26d175a7-4366-4e67-814f-32a1242af533",
       "target": "c2934f6f-2e94-431e-bb4d-44724e3857ab",
       "type": "transition",
-      "label": "mouseup / V key"
+      "label": "mouseup / V key",
+      "elbowMode": "min"
     },
     {
       "id": "bb8ee106-09fc-4967-9315-be523086a405",
@@ -1098,8 +1112,8 @@
     }
   ],
   "viewport": {
-    "x": 679,
-    "y": 200,
-    "zoom": 0.7510623853050803
+    "x": 119,
+    "y": -1525,
+    "zoom": 0.90377449535361
   }
 }
