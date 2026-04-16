@@ -1,5 +1,5 @@
 import type { DiagramStore } from '../store/DiagramStore.ts'
-import type { ConnectionType, Connection } from '../entities/Connection.ts'
+import type { ConnectionType, Connection, ElbowMode } from '../entities/Connection.ts'
 import { createConnection } from '../entities/Connection.ts'
 import type { PortSide } from '../entities/Connection.ts'
 import { absolutePortPosition } from '../renderers/ports.ts'
@@ -43,6 +43,7 @@ export class ConnectionController {
       tgtConfig?: ElementConfig,
       onFlip?: () => void,
       current?: { type: ConnectionType; srcMult: string; tgtMult: string },
+      onElbowChange?: (mode: ElbowMode) => void,
     ) => void,
   ) {}
 
@@ -157,6 +158,9 @@ export class ConnectionController {
         this.store.updateConnection(conn.id, { source: { ...conn.target }, target: { ...conn.source } })
       },
       { type: defaultType, srcMult: '', tgtMult: '' },
+      (mode: ElbowMode) => {
+        this.store.updateConnection(conn.id, { elbowMode: mode })
+      },
     )
   }
 
