@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  base: '/diagrams-tool/',
+  base: '/GraphModeller/',
   test: {
     environment: 'jsdom',
   },
