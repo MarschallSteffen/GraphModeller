@@ -165,17 +165,15 @@ export class Dashboard {
 
   private async resumeFile(file: RecentFile) {
     // Try to reuse the stored FileSystemFileHandle (no full open dialog).
-    if ('showOpenFilePicker' in window && _handleStore) {
+    if ('showOpenFilePicker' in window && _handleStore && _readDiagramJson && _acquireWriteHandle) {
       try {
         const handle = await _handleStore.loadHandle(file.id)
         if (handle) {
-          // Check / request permission — may show a small browser prompt, not a picker.
-          let perm = await (handle as any).queryPermission({ mode: 'readwrite' })
-          if (perm === 'prompt') {
-            perm = await (handle as any).requestPermission({ mode: 'readwrite' })
-          }
-          if (perm === 'granted') {
-            const text = await handle.getFile().then((f: File) => f.text())
+          // Request write permission — may show a small browser prompt, not a full picker.
+          const writeHandle = await _acquireWriteHandle(handle)
+          // Read diagram content (handles both .arch.png and .json)
+          const text = await _readDiagramJson(handle)
+          if (text) {
             const parsed = JSON.parse(text)
             const { deserializeV2 } = _persistence!
             const diagram = deserializeV2(parsed)
@@ -187,7 +185,9 @@ export class Dashboard {
               data: text,
             }
             addRecentFile(updated)
-            this.callbacks.onResume(updated, diagram, handle)
+            // Pass writeHandle (possibly null if permission denied) — main.ts
+            // onResume calls setActiveFileHandle which handles null gracefully.
+            this.callbacks.onResume(updated, diagram, writeHandle)
             return
           }
         }
@@ -250,6 +250,12 @@ export function injectHandleStore(s: typeof _handleStore) { _handleStore = s }
 
 let _getThumbnailDataUrl: ((id: string) => string | null) | null = null
 export function injectThumbnailCache(fn: (id: string) => string | null) { _getThumbnailDataUrl = fn }
+
+let _readDiagramJson: ((handle: FileSystemFileHandle) => Promise<string | null>) | null = null
+export function injectReadDiagramJson(fn: typeof _readDiagramJson) { _readDiagramJson = fn }
+
+let _acquireWriteHandle: ((handle: FileSystemFileHandle) => Promise<FileSystemFileHandle | null>) | null = null
+export function injectAcquireWriteHandle(fn: typeof _acquireWriteHandle) { _acquireWriteHandle = fn }
 
 const LS_RECENT = 'archetype:recent-files'
 const MAX_RECENT = 10

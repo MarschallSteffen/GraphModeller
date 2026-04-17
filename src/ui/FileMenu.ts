@@ -160,6 +160,28 @@ export class FileMenu {
     }, 400)
   }
 
+  private get warnSvg(): string {
+    return `<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2L1.5 13h13L8 2z"/><line x1="8" y1="6" x2="8" y2="9"/><circle cx="8" cy="11.5" r="0.5" fill="currentColor" stroke="none"/></svg>`
+  }
+
+  /** Show a persistent error state on the file indicator (autosave failed). */
+  notifySaveError(detail: string) {
+    if (!this._filename) return
+    if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null }
+    this.fileIndicator.innerHTML = `${this.warnSvg} ${this._filename}`
+    this.fileIndicator.classList.remove('file-indicator--saving', 'file-indicator--saved', 'file-indicator--fadeout')
+    this.fileIndicator.classList.add('file-indicator--error')
+    this.fileIndicator.title = `Autosave failed — ${detail}\nChanges are still saved in-browser. Use File › Save to retry.`
+  }
+
+  /** Clear the error state after a successful write. */
+  notifySaveRecovered() {
+    if (!this._filename) return
+    this.fileIndicator.classList.remove('file-indicator--error')
+    this.fileIndicator.title = ''
+    this.notifySaved()
+  }
+
   private toggleDropdown() {
     const isOpen = this.dropdown.classList.contains('open')
     if (isOpen) {

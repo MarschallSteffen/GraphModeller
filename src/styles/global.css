@@ -138,6 +138,11 @@ body {
   color: var(--ctp-green);
   background: color-mix(in srgb, var(--ctp-green) 20%, transparent);
 }
+.titlebar-file-indicator.file-indicator--error {
+  color: var(--ctp-red);
+  background: color-mix(in srgb, var(--ctp-red) 15%, transparent);
+  cursor: help;
+}
 .titlebar-save-indicator { display: none; }
 
 @keyframes save-spin {

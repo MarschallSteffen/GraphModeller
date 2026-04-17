@@ -70,7 +70,17 @@ export function saveDiagram(diagram: Diagram) {
 let _pngDebounceTimer: ReturnType<typeof setTimeout> | null = null
 let _pngWriting = false
 let _pngPending: Diagram | null = null
-const PNG_DEBOUNCE_MS = 1500
+let _pngFailCount = 0          // consecutive write failures (reset on success)
+const PNG_DEBOUNCE_MS  = 1500
+const PNG_RETRY_DELAY  = 3000  // wait 3 s before first retry after a failure
+const PNG_MAX_FAILURES = 2     // surface error to UI after this many consecutive fails
+
+// Callbacks wired from main.ts so persistence.ts stays UI-free.
+let _onSaveError:     ((msg: string) => void) | null = null
+let _onSaveRecovered: (() => void)            | null = null
+
+export function onPngSaveError    (fn: (msg: string) => void) { _onSaveError     = fn }
+export function onPngSaveRecovered(fn: () => void)            { _onSaveRecovered = fn }
 
 function schedulePngWrite(diagram: Diagram) {
   _pngPending = diagram  // always keep the freshest snapshot
@@ -85,24 +95,38 @@ async function flushPngWrite() {
   _pngWriting = true
   const snapshot = _pngPending
   _pngPending = null
+  let writeError: unknown = null
   try {
     const bytes = await buildArchPngBytes(snapshot)
-    // Cache thumbnail (data URL) keyed by recent-file ID — always, even if
-    // the file write fails, so the dashboard can show a fresh preview.
+    // Cache thumbnail regardless of whether the file write succeeds.
     _cacheThumbnail(_activeThumbnailId, bytes)
     if (activeFileHandle) {
       const w = await activeFileHandle.createWritable()
       await w.write(bytes.buffer as ArrayBuffer)
       await w.close()
     }
-  } catch {
-    // Silently ignore write errors — don't null out the handle so the next
-    // save attempt can still succeed (transient lock, permission prompt, etc.)
+    // Success — reset failure counter and clear any error banner.
+    if (_pngFailCount > 0) {
+      _pngFailCount = 0
+      _onSaveRecovered?.()
+    }
+  } catch (err) {
+    writeError = err
+    _pngFailCount++
+    if (_pngFailCount >= PNG_MAX_FAILURES) {
+      // Surface the problem to the user.
+      const msg = err instanceof Error ? err.message : String(err)
+      _onSaveError?.(msg)
+    }
+    // Queue a retry — put the failed snapshot back if nothing newer arrived.
+    if (!_pngPending) _pngPending = snapshot
   } finally {
     _pngWriting = false
-    // If another mutation arrived while we were writing, flush it now
     if (_pngPending && activeFileHandle) {
-      _pngDebounceTimer = setTimeout(flushPngWrite, PNG_DEBOUNCE_MS)
+      // Use the normal debounce for new mutations; use the retry delay for
+      // repeated failures so we don't hammer the FS on a persistent error.
+      const delay = writeError ? PNG_RETRY_DELAY : PNG_DEBOUNCE_MS
+      _pngDebounceTimer = setTimeout(flushPngWrite, delay)
     }
   }
 }
@@ -111,6 +135,7 @@ async function flushPngWrite() {
 export function closeActiveFile() {
   activeFileHandle = null
   _activeThumbnailId = null
+  _pngFailCount = 0
   if (_pngDebounceTimer !== null) { clearTimeout(_pngDebounceTimer); _pngDebounceTimer = null }
   _pngPending = null
 }
@@ -118,21 +143,27 @@ export function closeActiveFile() {
 /** Set a file handle as the active autosave target (e.g. resumed from dashboard). */
 export function setActiveFileHandle(handle: FileSystemFileHandle | null) {
   activeFileHandle = handle
+  _pngFailCount = 0  // fresh handle — clear any prior error state
 }
 
 /**
  * Open the native Save File picker for a .arch.png, store the handle, and write immediately.
  * Subsequent calls to `saveDiagram` will autosave to this file.
  * Pass `forceNew = true` to always show the picker (Save As behaviour).
+ *
+ * Returns the newly-picked FileSystemFileHandle when the picker was shown and
+ * the user confirmed, `null` when cancelled, or `true` when an existing handle
+ * was reused (no new handle to persist).
  */
 export async function openAndSaveToFile(
   diagram: Diagram,
   suggestedName = 'diagram.arch.png',
   forceNew = false,
-): Promise<boolean> {
+): Promise<FileSystemFileHandle | null | true> {
   const bytes = await buildArchPngBytes(diagram)
   if (!('showSaveFilePicker' in window)) {
     triggerDownload(new Blob([bytes.buffer as ArrayBuffer], { type: 'image/png' }), suggestedName)
+    _cacheThumbnail(diagram.id, bytes)
     return true
   }
   if (activeFileHandle && !forceNew) {
@@ -150,13 +181,14 @@ export async function openAndSaveToFile(
       types: [{ description: 'Archetype diagram', accept: { 'image/png': ['.png'] } }],
     })
     activeFileHandle = handle
+    _pngFailCount = 0
     const w = await handle.createWritable()
     await w.write(bytes.buffer as ArrayBuffer)
     await w.close()
     _cacheThumbnail(diagram.id, bytes)
-    return true
+    return handle  // caller should persist this handle
   } catch (err: unknown) {
-    if (err instanceof DOMException && err.name === 'AbortError') return false
+    if (err instanceof DOMException && err.name === 'AbortError') return null
     throw err
   }
 }
@@ -164,6 +196,22 @@ export async function openAndSaveToFile(
 // ─── .arch.png — PNG with embedded diagram JSON ──────────────────────────────
 
 const ARCH_KEYWORD = 'archetype-diagram'
+
+/**
+ * Read diagram JSON from a FileSystemFileHandle.
+ * Handles both .arch.png (extracts embedded iTXt) and .json files.
+ * Returns the raw JSON string, or null if the file is not a valid diagram.
+ */
+export async function readDiagramJsonFromHandle(
+  handle: FileSystemFileHandle,
+): Promise<string | null> {
+  const file = await handle.getFile()
+  if (file.name.endsWith('.arch.png') || file.name.endsWith('.png')) {
+    const buf  = await file.arrayBuffer()
+    return extractPngiTxt(new Uint8Array(buf), ARCH_KEYWORD)
+  }
+  return file.text()
+}
 
 /**
  * Inject an iTXt chunk carrying the diagram JSON into raw PNG bytes.
@@ -480,6 +528,39 @@ function triggerDownload(blob: Blob, filename: string) {
 // ─── File loading ────────────────────────────────────────────────────────────
 
 /**
+ * Request readwrite permission on `handle` and verify it by opening then
+ * immediately closing a writable stream. Returns the handle on success, or
+ * null if permission was denied or the write test failed.
+ *
+ * Called right after `showOpenFilePicker` while we are still inside the
+ * user-gesture context, which lets the browser grant write permission without
+ * a separate prompt on most platforms.
+ */
+export async function acquireWriteHandle(
+  handle: FileSystemFileHandle,
+): Promise<FileSystemFileHandle | null> {
+  try {
+    const h = handle as FileSystemFileHandle & {
+      queryPermission:   (desc: { mode: string }) => Promise<string>
+      requestPermission: (desc: { mode: string }) => Promise<string>
+    }
+    let perm = await h.queryPermission({ mode: 'readwrite' })
+    if (perm === 'prompt') {
+      perm = await h.requestPermission({ mode: 'readwrite' })
+    }
+    if (perm !== 'granted') return null
+
+    // Smoke-test: open a writable and close it immediately (writes nothing).
+    // This will throw if a .crswap lock is already held or the file is read-only.
+    const w = await handle.createWritable({ keepExistingData: true })
+    await w.close()
+    return handle
+  } catch {
+    return null
+  }
+}
+
+/**
  * Open a file picker, load the diagram, and set the handle as the active
  * autosave target so subsequent saves write back to the same file.
  */
@@ -496,18 +577,27 @@ export async function loadDiagramFromFile(
         ],
         multiple: false,
       })
+
+      // Request write permission immediately — we are still inside the user-gesture
+      // context from the picker, so the browser may grant it without a second prompt.
+      // Then open+close a writable right away to confirm the handle actually works.
+      // This surfaces permission/lock errors before the first autosave fires.
+      const writeHandle = await acquireWriteHandle(handle)
+
       const file = await handle.getFile()
       if (file.name.endsWith('.arch.png') || file.name.endsWith('.png')) {
         const buf  = await file.arrayBuffer()
         const json = extractPngiTxt(new Uint8Array(buf), ARCH_KEYWORD)
         if (!json) { alert('This PNG does not contain an embedded diagram.'); return }
         const raw = JSON.parse(json)
-        // .arch.png files are read-only previews — no autosave handle
-        onLoad(deserializeV2(raw), null, json)
+        // Always store the original handle (for IndexedDB / recent files).
+        // activeFileHandle uses the write-verified handle — null if write access denied.
+        activeFileHandle = writeHandle
+        onLoad(deserializeV2(raw), handle, json)
       } else {
         const text = await file.text()
         const raw  = JSON.parse(text)
-        activeFileHandle = handle
+        activeFileHandle = writeHandle ?? handle
         onLoad(deserializeV2(raw), handle, text)
       }
     } catch (err: unknown) {

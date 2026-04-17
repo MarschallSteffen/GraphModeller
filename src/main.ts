@@ -1,6 +1,6 @@
 import { DiagramStore } from './store/DiagramStore.ts'
 import { loadSavedTheme } from './themes/catppuccin.ts'
-import { loadDiagram, saveDiagram, openAndSaveToFile, closeActiveFile, setActiveFileHandle, setActiveThumbnailId, getThumbnailDataUrl, getActiveFileName, loadDiagramFromFile, serializeDiagramV2, deserializeV2 } from './serialization/persistence.ts'
+import { loadDiagram, saveDiagram, openAndSaveToFile, closeActiveFile, setActiveFileHandle, setActiveThumbnailId, getThumbnailDataUrl, getActiveFileName, loadDiagramFromFile, serializeDiagramV2, deserializeV2, onPngSaveError, onPngSaveRecovered, acquireWriteHandle, readDiagramJsonFromHandle } from './serialization/persistence.ts'
 import { ClassRenderer } from './renderers/ClassRenderer.ts'
 import { PackageRenderer } from './renderers/PackageRenderer.ts'
 import { StorageRenderer } from './renderers/StorageRenderer.ts'
@@ -27,7 +27,7 @@ import { EditMenu } from './ui/EditMenu.ts'
 import { ViewMenu } from './ui/ViewMenu.ts'
 import { AiPromptButton } from './ui/AiPromptButton.ts'
 import { saveHandle, loadHandle } from './serialization/fileHandleStore.ts'
-import { Dashboard, addRecentFile, getRecentFiles, injectPersistence, injectHandleStore, injectThumbnailCache } from './ui/Dashboard.ts'
+import { Dashboard, addRecentFile, getRecentFiles, injectPersistence, injectHandleStore, injectThumbnailCache, injectReadDiagramJson, injectAcquireWriteHandle } from './ui/Dashboard.ts'
 import { showConnectionPopover } from './ui/ConnectionPopover.ts'
 import { showMsgPopover } from './ui/MessagePopover.ts'
 import { showElementPropertiesPanel, hideElementPropertiesPanel } from './ui/ElementPropertiesPanel.ts'
@@ -77,6 +77,8 @@ loadSavedTheme()
 injectPersistence({ deserializeV2 })
 injectHandleStore({ loadHandle })
 injectThumbnailCache(getThumbnailDataUrl)
+injectReadDiagramJson(readDiagramJsonFromHandle)
+injectAcquireWriteHandle(acquireWriteHandle)
 
 const svg = document.getElementById('canvas') as unknown as SVGSVGElement
 injectMarkerDefs(svg)
@@ -121,15 +123,29 @@ const fileMenuCallbacks = {
   onSave: () => {
     const d = store.state
     const name = fileMenu.getTitle() || 'diagram'
-    openAndSaveToFile(d, `${name}.arch.png`).then(saved => {
-      if (saved) { setActiveThumbnailId(d.id); fileMenu.setFileIndicator(getActiveFileName()) }
+    openAndSaveToFile(d, `${name}.arch.png`).then(result => {
+      if (!result) return  // cancelled
+      setActiveThumbnailId(d.id)
+      fileMenu.setFileIndicator(getActiveFileName())
+      if (result !== true) {
+        // New handle was picked — persist it and update recent file entry
+        saveHandle(d.id, result).catch(() => {})
+        addRecentFile({ id: d.id, name: d.name || 'Untitled', filename: result.name, timestamp: Date.now(), data: JSON.stringify(serializeDiagramV2(d)) })
+      }
     }).catch(console.error)
   },
   onSaveAs: () => {
     const d = store.state
     const name = fileMenu.getTitle() || 'diagram'
-    openAndSaveToFile(d, `${name}.arch.png`, /* forceNew */ true).then(saved => {
-      if (saved) { setActiveThumbnailId(d.id); fileMenu.setFileIndicator(getActiveFileName()) }
+    openAndSaveToFile(d, `${name}.arch.png`, /* forceNew */ true).then(result => {
+      if (!result) return  // cancelled
+      setActiveThumbnailId(d.id)
+      fileMenu.setFileIndicator(getActiveFileName())
+      if (result !== true) {
+        // New handle was picked — persist it and update recent file entry
+        saveHandle(d.id, result).catch(() => {})
+        addRecentFile({ id: d.id, name: d.name || 'Untitled', filename: result.name, timestamp: Date.now(), data: JSON.stringify(serializeDiagramV2(d)) })
+      }
     }).catch(console.error)
   },
   onTitleChange: (title: string) => {
@@ -139,6 +155,9 @@ const fileMenuCallbacks = {
 }
 
 const fileMenu = new FileMenu(document.getElementById('titlebar')!, fileMenuCallbacks)
+
+onPngSaveError    (msg => fileMenu.notifySaveError(msg))
+onPngSaveRecovered(()  => fileMenu.notifySaveRecovered())
 
 // Insert Edit menu between File button and title input
 const editMenuAnchor = document.createElement('div')
