@@ -6,6 +6,7 @@ import { queueConfig } from './elements/queue.ts'
 import { useCaseConfig, ucSystemConfig, ucActorConfig } from './elements/useCase.ts'
 import { stateConfig, startStateConfig, endStateConfig } from './elements/stateDiagram.ts'
 import { seqLifelineConfig, seqFragmentConfig } from './elements/sequenceDiagram.ts'
+import { commentConfig } from './elements/comment.ts'
 
 const registry = new Map<string, ElementConfig>()
 
@@ -27,6 +28,7 @@ register(startStateConfig)
 register(endStateConfig)
 register(seqLifelineConfig)
 register(seqFragmentConfig)
+register(commentConfig)
 
 export function getElementConfig(type: string): ElementConfig | undefined {
   return registry.get(type)

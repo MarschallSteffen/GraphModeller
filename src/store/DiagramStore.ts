@@ -13,6 +13,7 @@ import type { StartState } from '../entities/StartState.ts'
 import type { EndState } from '../entities/EndState.ts'
 import type { SequenceDiagram } from '../entities/SequenceDiagram.ts'
 import type { CombinedFragment } from '../entities/CombinedFragment.ts'
+import type { Comment } from '../entities/Comment.ts'
 import type { ElementKind } from '../types.ts'
 import type { Point, Size } from '../entities/common.ts'
 
@@ -29,6 +30,7 @@ const KIND_TO_COLLECTION: Partial<Record<ElementKind, keyof Diagram>> = {
   'end-state':    'endStates',
   'seq-diagram':  'sequenceDiagrams',
   'seq-fragment': 'combinedFragments',
+  'comment':      'comments',
 }
 
 export type StoreEventType =
@@ -44,6 +46,7 @@ export type StoreEventType =
   | 'end-state:add' | 'end-state:update' | 'end-state:remove'
   | 'seq-diagram:add' | 'seq-diagram:update' | 'seq-diagram:remove'
   | 'seq-fragment:add' | 'seq-fragment:update' | 'seq-fragment:remove'
+  | 'comment:add' | 'comment:update' | 'comment:remove'
   | 'connection:add' | 'connection:update' | 'connection:remove'
   | 'viewport:update' | 'diagram:load' | 'history:change'
 
@@ -134,7 +137,7 @@ export class DiagramStore {
       this.diagram.classes, this.diagram.packages, this.diagram.storages,
       this.diagram.actors, this.diagram.queues, this.diagram.useCases,
       this.diagram.ucSystems, this.diagram.states, this.diagram.startStates,
-      this.diagram.endStates,
+      this.diagram.endStates, this.diagram.comments,
     ]
     for (const col of collections) {
       const el = col?.find(e => e.id === id)
@@ -151,6 +154,16 @@ export class DiagramStore {
     if (!this._undoGroupActive) this.pushUndoSnapshot()
     Object.assign(el, patch)
     this.emit(`${kind}:update` as StoreEventType, el)
+
+    // Move any comments pinned to this element
+    if (patch.position) {
+      for (const c of this.diagram.comments) {
+        if (c.pinnedTo === id && c.pinnedOffset) {
+          c.position = { x: patch.position.x + c.pinnedOffset.x, y: patch.position.y + c.pinnedOffset.y }
+          this.emit('comment:update', c)
+        }
+      }
+    }
   }
 
   private emit(type: StoreEventType, payload?: unknown) {
@@ -179,6 +192,7 @@ export class DiagramStore {
     if (!this.diagram.endStates)   this.diagram.endStates   = []
     if (!this.diagram.sequenceDiagrams) this.diagram.sequenceDiagrams = []
     if (!this.diagram.combinedFragments) this.diagram.combinedFragments = []
+    if (!this.diagram.comments) this.diagram.comments = []
 
     if (this.getAllElementsFlat().some(el => (el as any)._needsLayout)) {
       this.applyAutoLayout()
@@ -199,6 +213,7 @@ export class DiagramStore {
       ...this.diagram.endStates,
       ...this.diagram.sequenceDiagrams,
       ...this.diagram.combinedFragments,
+      ...this.diagram.comments,
     ]
   }
 
@@ -456,6 +471,19 @@ export class DiagramStore {
     this.pushUndoSnapshot()
     this.diagram.combinedFragments = this.diagram.combinedFragments.filter(f => f.id !== id)
     this.emit('seq-fragment:remove', id)
+  }
+
+  // ── Comments ─────────────────────────────────────────────────────────────
+
+  addComment(c: Comment)                       { this.pushUndoSnapshot(); this.diagram.comments.push(c); this.emit('comment:add', c) }
+  updateComment(id: string, patch: Partial<Comment>) {
+    const el = this.diagram.comments.find(c => c.id === id); if (!el) return
+    this.pushUndoSnapshot(); Object.assign(el, patch); this.emit('comment:update', el)
+  }
+  removeComment(id: string) {
+    this.pushUndoSnapshot()
+    this.diagram.comments = this.diagram.comments.filter(c => c.id !== id)
+    this.emit('comment:remove', id)
   }
 
   // ── Load ─────────────────────────────────────────────────────────────────

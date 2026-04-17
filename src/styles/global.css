@@ -1273,3 +1273,48 @@ body {
   padding: 0;
 }
 .lifeline-add-btn:hover { background: var(--ctp-lavender); color: var(--ctp-base); }
+
+/* ── Comments ────────────────────────────────────────────────────────── */
+.comment { cursor: move; }
+.comment-bg {
+  fill: color-mix(in srgb, var(--ctp-yellow) 12%, var(--ctp-base));
+  stroke: color-mix(in srgb, var(--ctp-yellow) 50%, transparent);
+  stroke-width: 1.5;
+}
+.comment.selected .comment-bg { stroke: var(--ctp-lavender); stroke-width: 2; }
+.comment-dogear { fill: color-mix(in srgb, var(--ctp-yellow) 30%, var(--ctp-base)); }
+.comment-dogear-fold { stroke: color-mix(in srgb, var(--ctp-yellow) 50%, transparent); stroke-width: 1; }
+.comment-pin-line { stroke: var(--ctp-overlay1); stroke-width: 1; stroke-dasharray: 4 3; pointer-events: none; }
+.comment-fo { overflow: visible; }
+.comment-text {
+  font-size: 12px;
+  color: var(--ctp-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+}
+.comment-textarea {
+  font-size: 12px;
+  color: var(--ctp-text);
+  background: var(--ctp-surface1);
+  border: 1px solid var(--ctp-lavender);
+  border-radius: 3px;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  outline: none;
+  font-family: inherit;
+}
+
+/* ── View menu checkmark ─────────────────────────────────────────────── */
+.menu-checkmark {
+  display: inline-block;
+  width: 14px;
+  font-size: 11px;
+  color: var(--ctp-green);
+}

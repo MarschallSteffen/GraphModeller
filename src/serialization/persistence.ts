@@ -13,6 +13,7 @@ import type { EndState } from '../entities/EndState.ts'
 import type { SequenceDiagram } from '../entities/SequenceDiagram.ts'
 import type { SequenceLifeline, SequenceMessage } from '../entities/SequenceLifeline.ts'
 import type { CombinedFragment } from '../entities/CombinedFragment.ts'
+import type { Comment } from '../entities/Comment.ts'
 import type { Connection, ConnectionType, ElbowMode, Multiplicity } from '../entities/Connection.ts'
 import { parseAttribute, serializeAttribute } from '../entities/Attribute.ts'
 import { parseMethod, serializeMethod } from '../entities/Method.ts'
@@ -127,6 +128,31 @@ export async function exportDiagramToPng(
   clonedSvg.setAttribute('viewBox', `${offsetX} ${offsetY} ${contentW} ${contentH}`)
 
   clonedSvg.querySelectorAll('.rubber-band, .snap-guides').forEach(el => el.remove())
+
+  // Replace <foreignObject> elements with SVG <text> to avoid canvas taint
+  const NS = 'http://www.w3.org/2000/svg'
+  clonedSvg.querySelectorAll('foreignObject').forEach(fo => {
+    const x = parseFloat(fo.getAttribute('x') ?? '0')
+    const y = parseFloat(fo.getAttribute('y') ?? '0')
+    const rawText = (fo.textContent ?? '').trim()
+    if (!rawText) { fo.remove(); return }
+    const FONT_SIZE = 12
+    const LINE_HEIGHT = FONT_SIZE * 1.4
+    const PADDING = 6
+    const lines = rawText.split('\n')
+    const g = document.createElementNS(NS, 'g')
+    lines.forEach((line, i) => {
+      const t = document.createElementNS(NS, 'text')
+      t.setAttribute('x', String(x + PADDING))
+      t.setAttribute('y', String(y + PADDING + FONT_SIZE + i * LINE_HEIGHT))
+      t.setAttribute('font-size', String(FONT_SIZE))
+      t.setAttribute('font-family', 'ui-sans-serif, system-ui, sans-serif')
+      t.setAttribute('fill', 'currentColor')
+      t.textContent = line || ''
+      g.appendChild(t)
+    })
+    fo.replaceWith(g)
+  })
 
   const clonedViewGroup = clonedSvg.querySelector('#view-group') as SVGGElement | null
   if (clonedViewGroup) clonedViewGroup.removeAttribute('transform')
@@ -326,6 +352,12 @@ export function serializeDiagramV2(diagram: Diagram): unknown {
     elements.push({ type: 'seq-fragment', id: f.id, operator: f.operator, condition: f.condition, position: f.position, size: f.size })
   }
 
+  for (const c of diagram.comments) {
+    const el: Record<string, unknown> = { type: 'comment', id: c.id, text: c.text, position: c.position, size: c.size }
+    if (c.pinnedTo) { el.pinnedTo = c.pinnedTo; el.pinnedOffset = c.pinnedOffset }
+    elements.push(el)
+  }
+
   const connections = diagram.connections.map(conn => {
     const c: Record<string, unknown> = {
       id: conn.id,
@@ -477,6 +509,19 @@ export function deserializeV2(raw: Record<string, unknown>): Diagram {
         }
         if (needsLayout) f._needsLayout = true
         diagram.combinedFragments.push(f)
+        break
+      }
+      case 'comment': {
+        const c: Comment = {
+          id,
+          elementType: 'comment',
+          text: typeof el.text === 'string' ? el.text : '',
+          position,
+          size,
+          pinnedTo: typeof el.pinnedTo === 'string' ? el.pinnedTo : null,
+          pinnedOffset: hasExplicitPosition(el.pinnedOffset) ? parsePosition(el.pinnedOffset) : null,
+        }
+        diagram.comments.push(c)
         break
       }
       // Unknown type — skip silently

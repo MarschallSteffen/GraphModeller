@@ -14,6 +14,7 @@ import { SEQ_HEADER_H, SEQ_MSG_ROW_H } from './renderers/SequenceLifelineRendere
 import type { ActiveSpan, InsertSlot } from './renderers/SequenceLifelineRenderer.ts'
 import { SequenceDiagramRenderer } from './renderers/SequenceDiagramRenderer.ts'
 import { CombinedFragmentRenderer } from './renderers/CombinedFragmentRenderer.ts'
+import { CommentRenderer } from './renderers/CommentRenderer.ts'
 import { ConnectionRenderer, injectMarkerDefs } from './renderers/ConnectionRenderer.ts'
 import { DragController } from './interaction/DragController.ts'
 import { ResizeController } from './interaction/ResizeController.ts'
@@ -23,6 +24,7 @@ import { InlineEditor } from './interaction/InlineEditor.ts'
 import { Toolbar, type Tool as ToolKind } from './ui/Toolbar.ts'
 import { FileMenu } from './ui/FileMenu.ts'
 import { EditMenu } from './ui/EditMenu.ts'
+import { ViewMenu } from './ui/ViewMenu.ts'
 import { AiPromptButton } from './ui/AiPromptButton.ts'
 import { saveHandle, loadHandle } from './serialization/fileHandleStore.ts'
 import { Dashboard, addRecentFile, getRecentFiles, injectPersistence, injectHandleStore } from './ui/Dashboard.ts'
@@ -43,6 +45,8 @@ import { createSequenceDiagram } from './entities/SequenceDiagram.ts'
 import type { SequenceDiagram } from './entities/SequenceDiagram.ts'
 import { createSequenceLifeline } from './entities/SequenceLifeline.ts'
 import { createCombinedFragment } from './entities/CombinedFragment.ts'
+import { createComment } from './entities/Comment.ts'
+import type { Comment } from './entities/Comment.ts'
 import { createDiagram } from './entities/Diagram.ts'
 import type { Diagram } from './entities/Diagram.ts'
 import type { UmlClass } from './entities/UmlClass.ts'
@@ -141,6 +145,11 @@ editMenuAnchor.style.display = 'contents'
 const titlebar = document.getElementById('titlebar')!
 titlebar.insertBefore(editMenuAnchor, titlebar.children[1])
 
+// Insert View menu after Edit menu anchor
+const viewMenuAnchor = document.createElement('div')
+viewMenuAnchor.style.display = 'contents'
+titlebar.insertBefore(viewMenuAnchor, titlebar.children[2])
+
 function deleteSelection() {
   selection.items.forEach(item => {
     if (item.kind === 'connection') { store.removeConnection(item.id); return }
@@ -177,6 +186,18 @@ function updateEditMenu() {
 
 store.on(ev => { if (ev.type === 'history:change') updateEditMenu() })
 selection.onChange(() => updateEditMenu())
+
+// ─── View menu + show-comments toggle ─────────────────────────────────────────
+
+let showComments = JSON.parse(localStorage.getItem('archetype:show-comments') ?? 'true') as boolean
+
+new ViewMenu(viewMenuAnchor, {
+  onToggleComments: (show: boolean) => {
+    showComments = show
+    localStorage.setItem('archetype:show-comments', JSON.stringify(show))
+    commentLayer.style.display = show ? '' : 'none'
+  },
+}, showComments)
 
 // AI prompt button — pushed to the right end of the titlebar
 const aiBtnAnchor = document.createElement('div')
@@ -280,7 +301,11 @@ const seqLayer      = document.createElementNS('http://www.w3.org/2000/svg', 'g'
 const seqConnLayer  = document.createElementNS('http://www.w3.org/2000/svg', 'g')
 const connLayer     = document.createElementNS('http://www.w3.org/2000/svg', 'g')
 const clsLayer      = document.createElementNS('http://www.w3.org/2000/svg', 'g')
-viewGroup.append(pkgLayer, storageLayer, actorLayer, queueLayer, ucLayer, stateLayer, seqLayer, seqConnLayer, connLayer, clsLayer)
+const commentLayer  = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+viewGroup.append(pkgLayer, storageLayer, actorLayer, queueLayer, ucLayer, stateLayer, seqLayer, seqConnLayer, connLayer, clsLayer, commentLayer)
+
+// Apply initial show-comments state (set before layers were declared)
+commentLayer.style.display = showComments ? '' : 'none'
 
 // Rubber-band selection rect — lives inside viewGroup so coords are in diagram space
 const rubberBandRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
@@ -327,6 +352,7 @@ const startStateRenderers = new Map<string, StartStateRenderer>()
 const endStateRenderers   = new Map<string, EndStateRenderer>()
 const seqDiagramRenderers    = new Map<string, SequenceDiagramRenderer>()
 const seqFragmentRenderers  = new Map<string, CombinedFragmentRenderer>()
+const commentRenderers      = new Map<string, CommentRenderer>()
 const connRenderers     = new Map<string, ConnectionRenderer>()
 
 // ─── Unified element descriptor table ────────────────────────────────────────
@@ -366,6 +392,7 @@ function initElementDescriptors() {
     { kind: 'seq-diagram', collection: 'sequenceDiagrams',  renderers: seqDiagramRenderers as Map<string, AnyRenderer>,    remove: id => store.removeSequenceDiagram(id),   add: el => store.addSequenceDiagram(el),   addRenderer: addSeqDiagramRenderer },
     { kind: 'seq-fragment',collection: 'combinedFragments', renderers: seqFragmentRenderers as Map<string, AnyRenderer>,   remove: id => store.removeCombinedFragment(id),  add: el => store.addCombinedFragment(el),  addRenderer: addSeqFragmentRenderer },
     { kind: 'class',       collection: 'classes',           renderers: classRenderers as Map<string, AnyRenderer>,         remove: id => store.removeClass(id),             add: el => store.addClass(el),             addRenderer: addClassRenderer },
+    { kind: 'comment',     collection: 'comments',          renderers: commentRenderers as Map<string, AnyRenderer>,       remove: id => store.removeComment(id),           add: el => store.addComment(el),           addRenderer: addCommentRenderer },
   ]
 }
 initElementDescriptors()
@@ -912,6 +939,112 @@ function addSeqFragmentRenderer(frag: CombinedFragment) {
   const r = new CombinedFragmentRenderer(frag, store, pkgLayer)
   seqFragmentRenderers.set(frag.id, r)
   wireSeqFragmentInteraction(r, frag)
+}
+
+function addCommentRenderer(comment: Comment) {
+  const r = new CommentRenderer(comment, store)
+  commentLayer.appendChild(r.el)
+  commentRenderers.set(comment.id, r)
+  wireCommentInteraction(r, comment)
+}
+
+function wireCommentInteraction(r: CommentRenderer, comment: Comment) {
+  wireElementInteraction(
+    r.el, 'comment', comment.id,
+    () => { const c = store.state.comments.find(c => c.id === comment.id) ?? comment; return { x: c.position.x, y: c.position.y, w: c.size.w, h: c.size.h } },
+    '', () => '', () => {},
+  )
+
+  // Dblclick → textarea for multiline editing
+  r.el.addEventListener('dblclick', e => {
+    e.stopPropagation()
+    const current = store.state.comments.find(c => c.id === comment.id) ?? comment
+    const fo = r.el.querySelector<SVGForeignObjectElement>('.comment-fo')
+    if (!fo) return
+    const textDiv = fo.querySelector<HTMLElement>('.comment-text')
+    if (!textDiv) return
+
+    const ta = document.createElementNS('http://www.w3.org/1999/xhtml', 'textarea') as HTMLTextAreaElement
+    ta.classList.add('comment-textarea')
+    ta.value = current.text
+    fo.replaceChild(ta, textDiv)
+    ta.focus()
+    ta.select()
+
+    const commit = () => {
+      const val = ta.value
+      store.updateComment(comment.id, { text: val })
+      // Restore div
+      const newDiv = document.createElementNS('http://www.w3.org/1999/xhtml', 'div') as HTMLDivElement
+      newDiv.classList.add('comment-text')
+      newDiv.textContent = val
+      fo.replaceChild(newDiv, ta)
+    }
+
+    ta.addEventListener('blur', () => commit())
+    ta.addEventListener('keydown', e2 => {
+      if (e2.key === 'Escape') { ta.value = current.text; ta.blur() }
+      if (e2.key === 'Enter' && (e2.ctrlKey || e2.metaKey)) { e2.preventDefault(); ta.blur() }
+    })
+  })
+
+  // Pin-on-drop: live preview during drag + commit on mouseup
+  const PIN_RADIUS = 50
+
+  function findClosestPinTarget(c: Comment): { id: string; el: { position: { x: number; y: number }; size: { w: number; h: number } } } | null {
+    const cx = c.position.x + c.size.w / 2
+    const cy = c.position.y + c.size.h / 2
+    let foundId: string | null = null
+    let foundEl: { position: { x: number; y: number }; size: { w: number; h: number } } | null = null
+    let bestDist = Infinity
+    for (const desc of ELEMENTS) {
+      if (desc.kind === 'comment') continue
+      const items = (store.state as any)[desc.collection] as Array<{ id: string; position: { x: number; y: number }; size: { w: number; h: number } }> ?? []
+      for (const el of items) {
+        // Nearest point on target rect to comment center
+        const nearTargX = Math.max(el.position.x, Math.min(cx, el.position.x + el.size.w))
+        const nearTargY = Math.max(el.position.y, Math.min(cy, el.position.y + el.size.h))
+        // Nearest point on comment rect to that target point
+        const nearCommX = Math.max(c.position.x, Math.min(nearTargX, c.position.x + c.size.w))
+        const nearCommY = Math.max(c.position.y, Math.min(nearTargY, c.position.y + c.size.h))
+        // Border-to-border distance (0 when overlapping)
+        const dist = Math.hypot(nearCommX - nearTargX, nearCommY - nearTargY)
+        if (dist < PIN_RADIUS && dist < bestDist) {
+          bestDist = dist
+          foundId = el.id
+          foundEl = el
+        }
+      }
+    }
+    return foundId && foundEl ? { id: foundId, el: foundEl } : null
+  }
+
+  r.el.addEventListener('mousedown', () => {
+    const onMove = () => {
+      const c = store.state.comments.find(c => c.id === comment.id)
+      if (!c) return
+      const hit = findClosestPinTarget(c)
+      r.setDragPinPreview(hit ? { x: hit.el.position.x, y: hit.el.position.y, w: hit.el.size.w, h: hit.el.size.h } : null)
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      const c = store.state.comments.find(c => c.id === comment.id)
+      if (!c) return
+      const hit = findClosestPinTarget(c)
+      if (hit) {
+        store.updateComment(comment.id, {
+          pinnedTo: hit.id,
+          pinnedOffset: { x: c.position.x - hit.el.position.x, y: c.position.y - hit.el.position.y },
+        })
+      } else if (c.pinnedTo) {
+        store.updateComment(comment.id, { pinnedTo: null, pinnedOffset: null })
+      }
+      // Renderer will re-render via store event; no need to clear preview manually
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  })
 }
 
 // Active connection popover dismiss — call to close any open connection popover
@@ -2101,6 +2234,7 @@ const TOOL_CREATORS: Partial<Record<ToolKind, (pt: DOMPoint) => void>> = {
   'end-state':    pt => store.addEndState(createEndState({ position: { x: pt.x - 18, y: pt.y - 18 } })),
   'seq-diagram':  pt => store.addSequenceDiagram(createSequenceDiagram(pt.x - 150, pt.y - 20)),
   'seq-fragment': pt => store.addCombinedFragment(createCombinedFragment(pt.x - 100, pt.y - 60)),
+  'comment':      pt => store.addComment(createComment({ position: { x: pt.x - 100, y: pt.y - 40 } })),
 }
 
 // ─── Drag-from-toolbar ────────────────────────────────────────────────────────
@@ -2340,6 +2474,7 @@ type ClipboardEntry =
   | { kind: 'end-state';   data: EndState }
   | { kind: 'seq-diagram';  data: SequenceDiagram }
   | { kind: 'seq-fragment'; data: CombinedFragment }
+  | { kind: 'comment';      data: Comment }
 
 // Simple clipboard — array of deep-cloned entity snapshots + connections between them
 let clipboard: ClipboardEntry[] = []
@@ -2554,6 +2689,7 @@ function rebuildAll() {
   seqLayer.innerHTML = ''
   seqConnLayer.innerHTML = ''
   connLayer.innerHTML = ''
+  commentLayer.innerHTML = ''
   ELEMENTS.forEach(d => d.renderers.clear())
   connRenderers.clear()
 

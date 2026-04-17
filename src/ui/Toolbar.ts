@@ -1,7 +1,7 @@
 import type { ThemeFlavour } from '../themes/catppuccin.ts'
 import { applyTheme, LATTE, FRAPPE, MACCHIATO, MOCHA } from '../themes/catppuccin.ts'
 
-export type Tool = 'select' | 'pan' | 'class' | 'package' | 'storage' | 'agent' | 'human-agent' | 'queue' | 'use-case' | 'uc-actor' | 'uc-system' | 'state' | 'start-state' | 'end-state' | 'seq-diagram' | 'seq-fragment'
+export type Tool = 'select' | 'pan' | 'class' | 'package' | 'storage' | 'agent' | 'human-agent' | 'queue' | 'use-case' | 'uc-actor' | 'uc-system' | 'state' | 'start-state' | 'end-state' | 'seq-diagram' | 'seq-fragment' | 'comment'
 
 type ToolChangeListener = (tool: Tool) => void
 
@@ -35,6 +35,8 @@ const ICONS: Record<Tool, string> = {
   'seq-diagram': `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="8" height="6" rx="1"/><rect x="13" y="3" width="8" height="6" rx="1"/><line x1="7" y1="9" x2="7" y2="21" stroke-dasharray="3 2"/><line x1="17" y1="9" x2="17" y2="21" stroke-dasharray="3 2"/><line x1="7" y1="14" x2="17" y2="14" stroke-dasharray="0"/><path d="M15 12 L17 14 L15 16" stroke-width="1.5"/></svg>`,
   // Combined Fragment: dashed-border box with pentagon label in top-left corner
   'seq-fragment':`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="1" stroke-dasharray="4 2"/><polyline points="3,3 10,3 10,7.5 8,9 3,9 3,3" stroke-width="1.5"/></svg>`,
+  // Comment: sticky-note with dog-ear
+  'comment':     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="3,3 17,3 21,7 21,21 3,21" stroke-linejoin="round"/><polyline points="17,3 17,7 21,7" stroke-width="1.2"/></svg>`,
 }
 
 interface ToolDef {
@@ -106,6 +108,14 @@ const TOOL_GROUPS: ToolGroup[] = [
     tools: [
       { kind: 'seq-diagram',   label: 'Add Sequence Diagram', key: 'l' },
       { kind: 'seq-fragment',  label: 'Add Combined Fragment'           },
+    ],
+    defaultOpen: false,
+  },
+  {
+    label: 'Annotations',
+    shortLabel: 'ANN',
+    tools: [
+      { kind: 'comment', label: 'Add Comment', key: 'x' },
     ],
     defaultOpen: false,
   },

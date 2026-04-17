@@ -11,6 +11,7 @@ import type { StartState } from './StartState.ts'
 import type { EndState } from './EndState.ts'
 import type { CombinedFragment } from './CombinedFragment.ts'
 import type { SequenceDiagram } from './SequenceDiagram.ts'
+import type { Comment } from './Comment.ts'
 
 export interface Viewport {
   x: number
@@ -33,6 +34,7 @@ export interface Diagram {
   endStates: EndState[]
   sequenceDiagrams: SequenceDiagram[]
   combinedFragments: CombinedFragment[]
+  comments: Comment[]
   connections: Connection[]
   viewport: Viewport
 }
@@ -53,6 +55,7 @@ export function createDiagram(name = 'Untitled'): Diagram {
     endStates: [],
     sequenceDiagrams: [],
     combinedFragments: [],
+    comments: [],
     connections: [],
     viewport: { x: 0, y: 0, zoom: 1 },
   }
