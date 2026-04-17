@@ -31,21 +31,88 @@ export function getActiveFileName(): string | null {
   return activeFileHandle?.name ?? null
 }
 
+// ─── In-memory PNG thumbnail cache ───────────────────────────────────────────
+// Keyed by recent-file ID (== diagram.id). Updated every time a PNG is built.
+// Max ~10 entries (matches MAX_RECENT in Dashboard.ts). No size cap needed since
+// each entry is one dashboard-thumbnail JPEG/PNG — a few hundred KB at most.
+
+const _thumbCache = new Map<string, string>()
+let   _activeThumbnailId: string | null = null
+
+/** Register the recent-file ID that maps to the currently open file handle. */
+export function setActiveThumbnailId(id: string | null) {
+  _activeThumbnailId = id
+}
+
+/** Return the cached data-URL thumbnail for the given recent-file ID, or null. */
+export function getThumbnailDataUrl(id: string): string | null {
+  return _thumbCache.get(id) ?? null
+}
+
+function _cacheThumbnail(id: string | null | undefined, bytes: Uint8Array) {
+  if (!id) return
+  const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'image/png' })
+  const old = _thumbCache.get(id)
+  if (old) URL.revokeObjectURL(old)
+  _thumbCache.set(id, URL.createObjectURL(blob))
+}
+
 /** Save to localStorage (and autosave to active .arch.png handle if open). */
 export function saveDiagram(diagram: Diagram) {
   localStorage.setItem(LS_JSON, JSON.stringify(serializeDiagramV2(diagram), null, 2))
-  if (activeFileHandle) {
-    buildArchPngBytes(diagram).then(bytes => {
-      activeFileHandle!.createWritable()
-        .then(w => w.write(bytes.buffer as ArrayBuffer).then(() => w.close()))
-        .catch(() => { activeFileHandle = null })
-    }).catch(() => { activeFileHandle = null })
+  if (activeFileHandle) schedulePngWrite(diagram)
+}
+
+// ─── PNG autosave — debounced, single writer ──────────────────────────────────
+// Rapid mutations coalesce into one write. A write already in flight is never
+// interrupted — the latest diagram snapshot is queued and flushed afterwards.
+
+let _pngDebounceTimer: ReturnType<typeof setTimeout> | null = null
+let _pngWriting = false
+let _pngPending: Diagram | null = null
+const PNG_DEBOUNCE_MS = 1500
+
+function schedulePngWrite(diagram: Diagram) {
+  _pngPending = diagram  // always keep the freshest snapshot
+  if (_pngWriting) return // a write is in flight — it will flush _pngPending when done
+  if (_pngDebounceTimer !== null) clearTimeout(_pngDebounceTimer)
+  _pngDebounceTimer = setTimeout(flushPngWrite, PNG_DEBOUNCE_MS)
+}
+
+async function flushPngWrite() {
+  _pngDebounceTimer = null
+  if (!activeFileHandle || !_pngPending) return
+  _pngWriting = true
+  const snapshot = _pngPending
+  _pngPending = null
+  try {
+    const bytes = await buildArchPngBytes(snapshot)
+    // Cache thumbnail (data URL) keyed by recent-file ID — always, even if
+    // the file write fails, so the dashboard can show a fresh preview.
+    _cacheThumbnail(_activeThumbnailId, bytes)
+    if (activeFileHandle) {
+      const w = await activeFileHandle.createWritable()
+      await w.write(bytes.buffer as ArrayBuffer)
+      await w.close()
+    }
+  } catch {
+    // Silently ignore write errors — don't null out the handle so the next
+    // save attempt can still succeed (transient lock, permission prompt, etc.)
+  } finally {
+    _pngWriting = false
+    // If another mutation arrived while we were writing, flush it now
+    if (_pngPending && activeFileHandle) {
+      _pngDebounceTimer = setTimeout(flushPngWrite, PNG_DEBOUNCE_MS)
+    }
   }
 }
 
 /** Close the active file handle (e.g. on New diagram). */
 export function closeActiveFile() {
   activeFileHandle = null
+  _activeThumbnailId = null
+  if (_pngDebounceTimer !== null) { clearTimeout(_pngDebounceTimer); _pngDebounceTimer = null }
+  _pngPending = null
 }
 
 /** Set a file handle as the active autosave target (e.g. resumed from dashboard). */
@@ -72,6 +139,7 @@ export async function openAndSaveToFile(
     const w = await activeFileHandle.createWritable()
     await w.write(bytes.buffer as ArrayBuffer)
     await w.close()
+    _cacheThumbnail(diagram.id, bytes)
     return true
   }
   try {
@@ -85,6 +153,7 @@ export async function openAndSaveToFile(
     const w = await handle.createWritable()
     await w.write(bytes.buffer as ArrayBuffer)
     await w.close()
+    _cacheThumbnail(diagram.id, bytes)
     return true
   } catch (err: unknown) {
     if (err instanceof DOMException && err.name === 'AbortError') return false
@@ -267,6 +336,18 @@ async function buildArchPngBytes(diagram: Diagram): Promise<Uint8Array> {
 
   const clonedViewGroup = clonedSvg.querySelector('#view-group') as SVGGElement | null
   if (clonedViewGroup) clonedViewGroup.removeAttribute('transform')
+
+  // Attribution watermark — bottom-right corner, in viewBox coordinate space
+  const attrText = document.createElementNS(NS, 'text')
+  attrText.setAttribute('x', String(offsetX + contentW - 8))
+  attrText.setAttribute('y', String(offsetY + contentH - 8))
+  attrText.setAttribute('text-anchor', 'end')
+  attrText.setAttribute('font-size', '10')
+  attrText.setAttribute('font-family', FONT_FAMILY)
+  attrText.setAttribute('fill', '#4c4f69')
+  attrText.setAttribute('opacity', '0.45')
+  attrText.textContent = 'marschallsteffen.github.io/Archetype'
+  clonedSvg.appendChild(attrText)
 
   const styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style')
   styleEl.textContent = collectStyles()

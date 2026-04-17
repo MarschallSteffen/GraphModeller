@@ -1,6 +1,6 @@
 import { DiagramStore } from './store/DiagramStore.ts'
 import { loadSavedTheme } from './themes/catppuccin.ts'
-import { loadDiagram, saveDiagram, openAndSaveToFile, closeActiveFile, setActiveFileHandle, getActiveFileName, loadDiagramFromFile, serializeDiagramV2, deserializeV2 } from './serialization/persistence.ts'
+import { loadDiagram, saveDiagram, openAndSaveToFile, closeActiveFile, setActiveFileHandle, setActiveThumbnailId, getThumbnailDataUrl, getActiveFileName, loadDiagramFromFile, serializeDiagramV2, deserializeV2 } from './serialization/persistence.ts'
 import { ClassRenderer } from './renderers/ClassRenderer.ts'
 import { PackageRenderer } from './renderers/PackageRenderer.ts'
 import { StorageRenderer } from './renderers/StorageRenderer.ts'
@@ -27,7 +27,7 @@ import { EditMenu } from './ui/EditMenu.ts'
 import { ViewMenu } from './ui/ViewMenu.ts'
 import { AiPromptButton } from './ui/AiPromptButton.ts'
 import { saveHandle, loadHandle } from './serialization/fileHandleStore.ts'
-import { Dashboard, addRecentFile, getRecentFiles, injectPersistence, injectHandleStore } from './ui/Dashboard.ts'
+import { Dashboard, addRecentFile, getRecentFiles, injectPersistence, injectHandleStore, injectThumbnailCache } from './ui/Dashboard.ts'
 import { showConnectionPopover } from './ui/ConnectionPopover.ts'
 import { showMsgPopover } from './ui/MessagePopover.ts'
 import { showElementPropertiesPanel, hideElementPropertiesPanel } from './ui/ElementPropertiesPanel.ts'
@@ -76,6 +76,7 @@ import { estimateTextWidth } from './renderers/svgUtils.ts'
 loadSavedTheme()
 injectPersistence({ deserializeV2 })
 injectHandleStore({ loadHandle })
+injectThumbnailCache(getThumbnailDataUrl)
 
 const svg = document.getElementById('canvas') as unknown as SVGSVGElement
 injectMarkerDefs(svg)
@@ -101,6 +102,7 @@ const fileMenuCallbacks = {
   onOpen: () => {
     loadDiagramFromFile((d, handle, rawJson) => {
       store.load(d)
+      setActiveThumbnailId(d.id)
       saveDiagram(d)
       fileMenu.setTitle(d.name ?? 'Untitled')
       fileMenu.setFileIndicator(getActiveFileName())
@@ -120,14 +122,14 @@ const fileMenuCallbacks = {
     const d = store.state
     const name = fileMenu.getTitle() || 'diagram'
     openAndSaveToFile(d, `${name}.arch.png`).then(saved => {
-      if (saved) fileMenu.setFileIndicator(getActiveFileName())
+      if (saved) { setActiveThumbnailId(d.id); fileMenu.setFileIndicator(getActiveFileName()) }
     }).catch(console.error)
   },
   onSaveAs: () => {
     const d = store.state
     const name = fileMenu.getTitle() || 'diagram'
     openAndSaveToFile(d, `${name}.arch.png`, /* forceNew */ true).then(saved => {
-      if (saved) fileMenu.setFileIndicator(getActiveFileName())
+      if (saved) { setActiveThumbnailId(d.id); fileMenu.setFileIndicator(getActiveFileName()) }
     }).catch(console.error)
   },
   onTitleChange: (title: string) => {
@@ -241,6 +243,7 @@ const dashboard = new Dashboard({
   onOpen: () => {
     loadDiagramFromFile((d, handle, rawJson) => {
       store.load(d)
+      setActiveThumbnailId(d.id)
       saveDiagram(d)
       fileMenu.setTitle(d.name ?? 'Untitled')
       fileMenu.setFileIndicator(getActiveFileName())
@@ -259,6 +262,7 @@ const dashboard = new Dashboard({
   onResume: (_file, d, handle) => {
     closeActiveFile()
     if (handle) setActiveFileHandle(handle)
+    setActiveThumbnailId(d.id)
     store.load(d)
     saveDiagram(d)
     fileMenu.setTitle(d.name ?? 'Untitled')

@@ -1,23 +1,23 @@
 /**
  * Connection routing utilities.
  *
+ * See docs/connection-routing.md for the full requirements and design notes.
+ *
  * Port selection
  * ──────────────
- * • Source: the single port closest to the target center (Manhattan distance
- *   from port position to target center), intersected with allowed sides.
- * • Target: the two ports facing toward the source (primary + secondary axis),
- *   intersected with allowed sides. Elbow mode picks between them.
+ * • Source and target ports are both controlled by an independent ElbowMode:
+ *   'auto'       — closest/facing port that scores best
+ *   'horizontal' — restrict to e/w ports
+ *   'vertical'   — restrict to n/s ports
+ *   'left'       — force w port (queue-type elements)
+ *   'right'      — force e port (queue-type elements)
  *
  * Path geometry
  * ─────────────
  * • Routes are strictly orthogonal (axis-aligned segments only).
  * • Stubs: STUB px perpendicular exit from each port before any turn.
- * • Corner placement: evenly spaced along the path.
- *   1 corner  → at the midpoint of the inner path
- *   2 corners → at 1/3 and 2/3 of the inner path
  * • Turn count preference: fewer turns wins, but only if the path is not
  *   MORE than SIMPLICITY_THRESHOLD px longer than the next-turn option.
- *   This prevents a barely-shorter 2-turn path from beating a 1-turn path.
  * • No overlap: paths that clip either element rect receive a large penalty,
  *   ensuring any clean path (of any turn count) beats any clipping path.
  */
