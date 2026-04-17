@@ -2625,7 +2625,11 @@ function doPaste() {
     }
     const desc = ELEMENTS.find(d => d.kind === entry.kind)
     if (desc) {
-      const copy = { ...entry.data, id: newId, position: pos }
+      // Remap pinnedTo if the pinned target was also copied
+      const pinnedTo = (entry.data as { pinnedTo?: string }).pinnedTo
+      const remappedPinnedTo = pinnedTo ? (idMap.get(pinnedTo) ?? null) : null
+      const pinnedOffset = remappedPinnedTo ? (entry.data as { pinnedOffset?: unknown }).pinnedOffset : null
+      const copy = { ...entry.data, id: newId, position: pos, ...(entry.kind === 'comment' ? { pinnedTo: remappedPinnedTo, pinnedOffset } : {}) }
       desc.add(copy)
       selection.select({ kind: desc.kind, id: newId }, true)
     }

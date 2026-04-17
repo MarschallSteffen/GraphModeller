@@ -512,7 +512,7 @@ export function deserializeV2(raw: Record<string, unknown>): Diagram {
         break
       }
       case 'comment': {
-        const c: Comment = {
+        const c: Comment & { _needsLayout?: boolean } = {
           id,
           elementType: 'comment',
           text: typeof el.text === 'string' ? el.text : '',
@@ -521,6 +521,7 @@ export function deserializeV2(raw: Record<string, unknown>): Diagram {
           pinnedTo: typeof el.pinnedTo === 'string' ? el.pinnedTo : null,
           pinnedOffset: hasExplicitPosition(el.pinnedOffset) ? parsePosition(el.pinnedOffset) : null,
         }
+        if (!hasExplicitPosition(el.position)) c._needsLayout = true
         diagram.comments.push(c)
         break
       }

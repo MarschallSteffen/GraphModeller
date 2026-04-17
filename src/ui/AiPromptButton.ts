@@ -33,6 +33,7 @@ Omit \`position\` and \`size\` — the tool auto-lays elements out.
 | \`start-state\` | State | no name needed |
 | \`end-state\` | State | no name needed |
 | \`seq-diagram\` | Sequence | give explicit \`position\` + \`size\`; nested \`lifelines\` array (see below) |
+| \`comment\` | Any | \`text\`: multiline annotation text; optional \`pinnedTo\`: id of another element to attach a dashed line to; omit \`position\` — it will be placed automatically to the right of the pinned element |
 
 ### Sequence diagram lifelines
 

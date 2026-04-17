@@ -236,21 +236,26 @@ export class DiagramStore {
   }
 
   private applyAutoLayout() {
-    const COLUMN_GAP = 80
-    const ROW_GAP    = 60
-    const START_X    = 100
-    const START_Y    = 100
+    const COLUMN_GAP  = 80
+    const ROW_GAP     = 60
+    const START_X     = 100
+    const START_Y     = 100
+    const COMMENT_GAP = 20  // gap between pinned element right edge and comment
 
     const allEls = this.getAllElementsFlat()
     const toLayout = allEls.filter(el => (el as any)._needsLayout)
     if (toLayout.length === 0) return
 
-    const idSet = new Set(toLayout.map(el => el.id))
+    // Separate comments from regular elements — comments are placed after
+    const comments    = toLayout.filter(el => (el as any).elementType === 'comment') as Array<typeof toLayout[number] & { pinnedTo?: string | null }>
+    const regularEls  = toLayout.filter(el => (el as any).elementType !== 'comment')
+
+    const idSet = new Set(regularEls.map(el => el.id))
 
     // Build adjacency: id → ids it points to (within the unlayouted set)
     const outgoing = new Map<string, Set<string>>()
     const inDegree  = new Map<string, number>()
-    for (const el of toLayout) { outgoing.set(el.id, new Set()); inDegree.set(el.id, 0) }
+    for (const el of regularEls) { outgoing.set(el.id, new Set()); inDegree.set(el.id, 0) }
 
     for (const conn of this.diagram.connections) {
       const src = conn.source.elementId
@@ -263,7 +268,7 @@ export class DiagramStore {
 
     // Kahn's topological sort
     const sorted: string[] = []
-    const queue = toLayout.filter(el => inDegree.get(el.id) === 0).map(el => el.id)
+    const queue = regularEls.filter(el => inDegree.get(el.id) === 0).map(el => el.id)
     while (queue.length) {
       const id = queue.shift()!
       sorted.push(id)
@@ -274,7 +279,7 @@ export class DiagramStore {
       }
     }
     // Cycle fallback: append any remaining nodes in insertion order
-    for (const el of toLayout) {
+    for (const el of regularEls) {
       if (!sorted.includes(el.id)) sorted.push(el.id)
     }
 
@@ -291,12 +296,12 @@ export class DiagramStore {
     }
 
     // Group by level
-    const maxLevel = Math.max(...Array.from(level.values()))
+    const maxLevel = Math.max(...Array.from(level.values()), 0)
     const byLevel: string[][] = Array.from({ length: maxLevel + 1 }, () => [])
     for (const id of sorted) byLevel[level.get(id)!].push(id)
 
-    // Place elements column by column
-    const elById = new Map(toLayout.map(el => [el.id, el]))
+    // Place regular elements column by column
+    const elById = new Map(regularEls.map(el => [el.id, el]))
     let x = START_X
     for (const col of byLevel) {
       let maxW = 0
@@ -309,6 +314,27 @@ export class DiagramStore {
         maxW = Math.max(maxW, el.size.w)
       }
       x += maxW + COLUMN_GAP
+    }
+
+    // Place comments: to the right of pinned target, or in grid as fallback
+    // Build a lookup covering all elements (including already-placed ones)
+    const allById = new Map(this.getAllElementsFlat().map(el => [el.id, el]))
+    let fallbackX = x, fallbackY = START_Y
+    for (const c of comments) {
+      const pinnedTo = (c as any).pinnedTo as string | null | undefined
+      const target = pinnedTo ? allById.get(pinnedTo) : undefined
+      if (target) {
+        c.position = {
+          x: target.position.x + target.size.w + COMMENT_GAP,
+          y: target.position.y,
+        }
+        // Record offset from target
+        ;(c as any).pinnedOffset = { x: c.position.x - target.position.x, y: c.position.y - target.position.y }
+      } else {
+        c.position = { x: fallbackX, y: fallbackY }
+        fallbackY += c.size.h + ROW_GAP
+      }
+      ;(c as any)._needsLayout = false
     }
   }
 
