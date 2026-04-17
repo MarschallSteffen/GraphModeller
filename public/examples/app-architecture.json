@@ -770,6 +770,24 @@
           }
         }
       ]
+    },
+    {
+      "type": "comment",
+      "id": "cmt-store",
+      "text": "Central event bus — all mutations emit typed events (e.g. 'uml-class:update'). Undo/redo stack is managed here via pushUndoSnapshot().",
+      "pinnedTo": "cls-store"
+    },
+    {
+      "type": "comment",
+      "id": "cmt-events",
+      "text": "Async store events propagate to every renderer subscribed via store.on(). Renderers update only when their own ID matches.",
+      "pinnedTo": "tam-events"
+    },
+    {
+      "type": "comment",
+      "id": "cmt-seq",
+      "text": "Illustrates the file open flow: FileMenu triggers persistence.ts which calls store.loadDiagram(), causing a full canvas rebuild.",
+      "pinnedTo": "seq-main"
     }
   ],
   "connections": [
