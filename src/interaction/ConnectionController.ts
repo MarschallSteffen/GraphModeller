@@ -44,6 +44,7 @@ export class ConnectionController {
       onFlip?: () => void,
       current?: { type: ConnectionType; srcMult: string; tgtMult: string },
       onElbowChange?: (mode: ElbowMode) => void,
+      onSrcElbowChange?: (mode: ElbowMode) => void,
     ) => void,
   ) {}
 
@@ -158,8 +159,11 @@ export class ConnectionController {
         this.store.updateConnection(conn.id, { source: { ...conn.target }, target: { ...conn.source } })
       },
       { type: defaultType, srcMult: '', tgtMult: '' },
-      (mode: ElbowMode) => {
-        this.store.updateConnection(conn.id, { elbowMode: mode })
+      (tgtMode: ElbowMode) => {
+        this.store.updateConnection(conn.id, { elbowMode: tgtMode })
+      },
+      (srcMode: ElbowMode) => {
+        this.store.updateConnection(conn.id, { srcElbowMode: srcMode })
       },
     )
   }

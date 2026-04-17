@@ -1018,6 +1018,19 @@ body {
   font-size: 11px;
 }
 
+.conn-routing-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 2px 6px;
+}
+
+.conn-routing-side-label {
+  font-size: 11px;
+  color: var(--ctp-subtext0);
+  white-space: nowrap;
+}
+
 .conn-elbow-row {
   display: flex;
   align-items: center;

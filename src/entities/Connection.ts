@@ -30,7 +30,7 @@ export interface ConnectionEnd {
   port: PortSide
 }
 
-export type ElbowMode = 'auto' | 'min' | 'max'
+export type ElbowMode = 'auto' | 'horizontal' | 'vertical' | 'left' | 'right'
 
 export interface Connection {
   id: string
@@ -40,6 +40,7 @@ export interface Connection {
   sourceMultiplicity: Multiplicity
   targetMultiplicity: Multiplicity
   label: string
+  srcElbowMode?: ElbowMode
   elbowMode?: ElbowMode
 }
 

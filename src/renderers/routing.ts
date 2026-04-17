@@ -368,38 +368,58 @@ function bestInnerForPair(
 /**
  * Pick the best (srcPort, tgtPort) pair.
  *
- * Source: single port closest to the target center.
- * Target: two facing ports — elbow mode selects between them:
- *   'auto' — pick whichever of the two facing ports scores better
- *   'min'  — force primary facing port (index 0)
- *   'max'  — force secondary facing port (index 1, or 0 if only one exists)
+ * Both source and target port selection follow the same rules:
+ *   'auto'       — pick whichever facing port scores best
+ *   'horizontal' — restrict to horizontal sides (e/w) → exits/enters from the side
+ *   'vertical'   — restrict to vertical sides (n/s)   → exits/enters from top/bottom
+ *   'left'       — force west (w) port — for elements with only e/w ports (queues)
+ *   'right'      — force east (e) port — for elements with only e/w ports (queues)
+ *
+ * Axis-restriction is stable: the allowed set never changes as elements move,
+ * so ports cannot flip. If the element has no ports on the restricted axis,
+ * the restriction is silently dropped and auto applies.
  */
 export function bestPortPair(
   src: Rect, tgt: Rect,
   srcSides: readonly PortSide[] = PORT_SIDES,
   tgtSides: readonly PortSide[] = PORT_SIDES,
-  elbowMode: ElbowMode = 'auto',
+  tgtElbowMode: ElbowMode = 'auto',
+  srcElbowMode: ElbowMode = 'auto',
 ): { src: PortSide; tgt: PortSide } {
-  const sp = closestSrcPort(src, tgt, srcSides)
-  const [spx, spy] = portPt(src, sp)
-  const [tgtPrimary, tgtSecondary] = facingTgtPorts(tgt, spx, spy, tgtSides)
+  const effectiveSrcSides = restrictSides(srcSides, srcElbowMode)
+  const effectiveTgtSides = restrictSides(tgtSides, tgtElbowMode)
 
-  if (elbowMode === 'min' || tgtSecondary === null) {
+  const sp = closestSrcPort(src, tgt, effectiveSrcSides)
+  const [spx, spy] = portPt(src, sp)
+  const [tgtPrimary, tgtSecondary] = facingTgtPorts(tgt, spx, spy, effectiveTgtSides)
+
+  if (tgtSecondary === null) {
     return { src: sp, tgt: tgtPrimary }
   }
-  if (elbowMode === 'max') {
-    return { src: sp, tgt: tgtSecondary }
-  }
 
-  // auto: score both and pick the better one
+  // Among remaining candidates pick by score
   const [sx, sy] = stubPt(src, sp)
   const [tx1, ty1] = stubPt(tgt, tgtPrimary)
   const [tx2, ty2] = stubPt(tgt, tgtSecondary)
-
   const r1 = bestInnerForPair(sx, sy, sp, tx1, ty1, tgtPrimary,   src, tgt)
   const r2 = bestInnerForPair(sx, sy, sp, tx2, ty2, tgtSecondary, src, tgt)
 
   return { src: sp, tgt: r1.score <= r2.score ? tgtPrimary : tgtSecondary }
+}
+
+/** Apply an ElbowMode axis/side restriction to a set of allowed port sides. */
+function restrictSides(sides: readonly PortSide[], mode: ElbowMode): readonly PortSide[] {
+  if (mode === 'horizontal') {
+    const h = sides.filter(s => s === 'e' || s === 'w')
+    return h.length > 0 ? h : sides
+  }
+  if (mode === 'vertical') {
+    const v = sides.filter(s => s === 'n' || s === 's')
+    return v.length > 0 ? v : sides
+  }
+  if (mode === 'left')  return sides.includes('w') ? ['w'] : sides
+  if (mode === 'right') return sides.includes('e') ? ['e'] : sides
+  return sides
 }
 
 /**

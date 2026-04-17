@@ -573,6 +573,7 @@ export function serializeDiagramV2(diagram: Diagram): unknown {
     if (conn.label) c.label = conn.label
     if (conn.sourceMultiplicity) c.sourceMultiplicity = conn.sourceMultiplicity
     if (conn.targetMultiplicity) c.targetMultiplicity = conn.targetMultiplicity
+    if (conn.srcElbowMode && conn.srcElbowMode !== 'auto') c.srcElbowMode = conn.srcElbowMode
     if (conn.elbowMode && conn.elbowMode !== 'auto') c.elbowMode = conn.elbowMode
     return c
   })
@@ -751,6 +752,7 @@ export function deserializeV2(raw: Record<string, unknown>): Diagram {
       sourceMultiplicity: parseMultiplicity(c.sourceMultiplicity),
       targetMultiplicity: parseMultiplicity(c.targetMultiplicity),
       label: typeof c.label === 'string' ? c.label : '',
+      srcElbowMode: parseElbowMode(c.srcElbowMode),
       elbowMode: parseElbowMode(c.elbowMode),
     }
     diagram.connections.push(conn)
@@ -817,7 +819,10 @@ function parseMultiplicity(raw: unknown): Multiplicity {
 }
 
 function parseElbowMode(raw: unknown): ElbowMode | undefined {
-  if (raw === 'min' || raw === 'max') return raw
+  if (raw === 'horizontal' || raw === 'vertical' || raw === 'left' || raw === 'right') return raw
+  // migrate legacy values
+  if (raw === 'min') return 'horizontal'
+  if (raw === 'max') return 'vertical'
   if (raw === 'auto') return undefined
   return undefined
 }

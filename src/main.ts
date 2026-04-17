@@ -1205,9 +1205,12 @@ function addConnectionRenderer(conn: Connection) {
         // Flip: swap source and target
         store.updateConnection(c.id, { source: { ...c.target }, target: { ...c.source } })
       },
-      { type: c.type, srcMult: c.sourceMultiplicity ?? '', tgtMult: c.targetMultiplicity ?? '', elbowMode: c.elbowMode },
-      (mode: ElbowMode) => {
-        store.updateConnection(c.id, { elbowMode: mode })
+      { type: c.type, srcMult: c.sourceMultiplicity ?? '', tgtMult: c.targetMultiplicity ?? '', elbowMode: c.elbowMode, srcElbowMode: c.srcElbowMode },
+      (tgtMode: ElbowMode) => {
+        store.updateConnection(c.id, { elbowMode: tgtMode })
+      },
+      (srcMode: ElbowMode) => {
+        store.updateConnection(c.id, { srcElbowMode: srcMode })
       },
     )
   }, (c, labelEl) => {
@@ -1867,6 +1870,7 @@ function refreshConnections() {
       srcSides,
       tgtSides,
       conn.elbowMode ?? 'auto',
+      conn.srcElbowMode ?? 'auto',
     )
     conn.source.port = best.src
     conn.target.port = best.tgt

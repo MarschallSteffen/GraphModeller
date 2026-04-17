@@ -81,8 +81,9 @@ export function showConnectionPopover(
   srcConfig?: ElementConfig,
   tgtConfig?: ElementConfig,
   onFlip?: () => void,
-  current?: { type: ConnectionType; srcMult: string; tgtMult: string; elbowMode?: ElbowMode },
+  current?: { type: ConnectionType; srcMult: string; tgtMult: string; elbowMode?: ElbowMode; srcElbowMode?: ElbowMode },
   onElbowChange?: (mode: ElbowMode) => void,
+  onSrcElbowChange?: (mode: ElbowMode) => void,
 ) {
   document.getElementById('conn-popover')?.remove()
 
@@ -124,14 +125,45 @@ export function showConnectionPopover(
     </div>
   ` : ''
 
-  const activeElbow: ElbowMode = current?.elbowMode ?? 'auto'
-  const elbowHtml = onElbowChange ? `
+  const activeTgtElbow: ElbowMode = current?.elbowMode ?? 'auto'
+  const activeSrcElbow: ElbowMode = current?.srcElbowMode ?? 'auto'
+
+  // Auto icon: center dot + stubs on all 4 sides
+  const autoIcon = S('<circle cx="8" cy="8" r="2"/><line x1="8" y1="2" x2="8" y2="5"/><line x1="8" y1="11" x2="8" y2="14"/><line x1="2" y1="8" x2="5" y2="8"/><line x1="11" y1="8" x2="14" y2="8"/>')
+  // Horizontal icon: center dot + left/right stubs only
+  const hIcon = S('<circle cx="8" cy="8" r="2"/><line x1="2" y1="8" x2="5" y2="8"/><line x1="11" y1="8" x2="14" y2="8"/>')
+  // Vertical icon: center dot + top/bottom stubs only
+  const vIcon = S('<circle cx="8" cy="8" r="2"/><line x1="8" y1="2" x2="8" y2="5"/><line x1="8" y1="11" x2="8" y2="14"/>')
+  // Left icon: center dot + left stub only
+  const leftIcon = S('<circle cx="8" cy="8" r="2"/><line x1="2" y1="8" x2="5" y2="8"/>')
+  // Right icon: center dot + right stub only
+  const rightIcon = S('<circle cx="8" cy="8" r="2"/><line x1="11" y1="8" x2="14" y2="8"/>')
+
+  function elbowRow(active: ElbowMode, prefix: string, isHOnly: boolean): string {
+    const a = (mode: ElbowMode) => active === mode ? ' active' : ''
+    if (isHOnly) return `
+      <button class="conn-elbow-btn${a('auto')}"  data-elbow="auto"  data-side="${prefix}" title="Auto route"                    aria-label="Auto route">${autoIcon}</button>
+      <button class="conn-elbow-btn${a('left')}"  data-elbow="left"  data-side="${prefix}" title="Force left port (west)"        aria-label="Force left port">${leftIcon}</button>
+      <button class="conn-elbow-btn${a('right')}" data-elbow="right" data-side="${prefix}" title="Force right port (east)"       aria-label="Force right port">${rightIcon}</button>
+    `
+    return `
+      <button class="conn-elbow-btn${a('auto')}"       data-elbow="auto"       data-side="${prefix}" title="Auto route"                         aria-label="Auto route">${autoIcon}</button>
+      <button class="conn-elbow-btn${a('horizontal')}" data-elbow="horizontal" data-side="${prefix}" title="Force horizontal port (east/west)"  aria-label="Force horizontal port">${hIcon}</button>
+      <button class="conn-elbow-btn${a('vertical')}"   data-elbow="vertical"   data-side="${prefix}" title="Force vertical port (north/south)"  aria-label="Force vertical port">${vIcon}</button>
+    `
+  }
+
+  const srcIsHOnly = srcConfig != null && srcConfig.ports.every(p => p.id === 'e' || p.id === 'w')
+  const tgtIsHOnly = tgtConfig != null && tgtConfig.ports.every(p => p.id === 'e' || p.id === 'w')
+
+  const elbowHtml = (onElbowChange || onSrcElbowChange) ? `
     <hr class="popover-section-separator"/>
     <div class="popover-section-label">Routing</div>
-    <div class="conn-elbow-row">
-      <button class="conn-elbow-btn${activeElbow === 'auto' ? ' active' : ''}" data-elbow="auto" title="Auto route" aria-label="Auto route">${S('<circle cx="8" cy="8" r="2"/><line x1="8" y1="2" x2="8" y2="5"/><line x1="8" y1="11" x2="8" y2="14"/><line x1="2" y1="8" x2="5" y2="8"/><line x1="11" y1="8" x2="14" y2="8"/>')}</button>
-      <button class="conn-elbow-btn${activeElbow === 'min'  ? ' active' : ''}" data-elbow="min"  title="Force lower-left corner" aria-label="Force lower-left corner">${S('<polyline points="4,2 4,12 14,12"/>')}</button>
-      <button class="conn-elbow-btn${activeElbow === 'max'  ? ' active' : ''}" data-elbow="max"  title="Force upper-right corner" aria-label="Force upper-right corner">${S('<polyline points="2,4 12,4 12,14"/>')}</button>
+    <div class="conn-routing-grid">
+      <span class="conn-routing-side-label">Source</span>
+      <div class="conn-elbow-row">${elbowRow(activeSrcElbow, 'src', srcIsHOnly)}</div>
+      <span class="conn-routing-side-label">Target</span>
+      <div class="conn-elbow-row">${elbowRow(activeTgtElbow, 'tgt', tgtIsHOnly)}</div>
     </div>
   ` : ''
 
@@ -174,13 +206,17 @@ export function showConnectionPopover(
     onFlip?.()
   })
 
-  // Elbow mode buttons
+  // Elbow mode buttons (source and target rows share one handler, distinguished by data-side)
   popover.querySelectorAll<HTMLButtonElement>('.conn-elbow-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const mode = btn.dataset.elbow as ElbowMode
-      popover.querySelectorAll('.conn-elbow-btn').forEach(b => b.classList.remove('active'))
+      const side = btn.dataset.side
+      // Deactivate all buttons in the same row
+      popover.querySelectorAll<HTMLButtonElement>(`.conn-elbow-btn[data-side="${side}"]`)
+        .forEach(b => b.classList.remove('active'))
       btn.classList.add('active')
-      onElbowChange?.(mode)
+      if (side === 'src') onSrcElbowChange?.(mode)
+      else onElbowChange?.(mode)
     })
   })
 
