@@ -3,6 +3,9 @@ import type { Selectable } from './SelectionManager.ts'
 import type { ElementKind } from '../types.ts'
 import { applySnap, type SnapRect } from './SnapEngine.ts'
 
+/** Provider that returns all candidate snap rects (excluding dragged element ids). */
+export type SnapRectProvider = (excludeIds: Set<string>) => SnapRect[]
+
 /** Element kinds that act as containers — dragging them alone also drags contained elements. */
 const CONTAINER_KINDS: ReadonlySet<ElementKind> = new Set(['package', 'uc-system', 'seq-fragment'])
 
@@ -23,6 +26,7 @@ export class DragController {
     private getSvgPoint: (e: MouseEvent) => DOMPoint,
     private getContainedElements: (pkgId: string) => Array<{ kind: ElementKind; id: string }> = () => [],
     private onGuides: (guides: import('./SnapEngine.ts').GuideLine[]) => void = () => {},
+    private snapRectProvider?: SnapRectProvider,
   ) {}
 
   /**
@@ -117,23 +121,21 @@ export class DragController {
 
   /** Collect rects for all elements except those being dragged. */
   private getAllRects(excludeIds: Set<string>): SnapRect[] {
+    if (this.snapRectProvider) return this.snapRectProvider(excludeIds)
+
+    // Fallback: direct store access — covers all collections present in Diagram.
+    // This path is only hit in tests or when no provider is injected.
     const s = this.store.state
     const rects: SnapRect[] = []
     const push = (id: string, pos: { x: number; y: number }, size: { w: number; h: number }) => {
       if (!excludeIds.has(id)) rects.push({ x: pos.x, y: pos.y, w: size.w, h: size.h })
     }
-    for (const c of s.classes)        push(c.id, c.position, c.size)
-    for (const p of s.packages)       push(p.id, p.position, p.size)
-    for (const st of s.storages)      push(st.id, st.position, st.size)
-    for (const a of s.actors)         push(a.id, a.position, a.size)
-    for (const q of s.queues)         push(q.id, q.position, q.size)
-    for (const u of s.useCases)       push(u.id, u.position, u.size)
-    for (const u of s.ucSystems)      push(u.id, u.position, u.size)
-    for (const st of (s.states ?? []))      push(st.id, st.position, st.size)
-    for (const st of (s.startStates ?? [])) push(st.id, st.position, st.size)
-    for (const st of (s.endStates ?? []))   push(st.id, st.position, st.size)
-    for (const sd of (s.sequenceDiagrams ?? []))   push(sd.id, sd.position, sd.size)
-    for (const f of (s.combinedFragments ?? []))    push(f.id, f.position, f.size)
+    for (const col of Object.values(s) as Array<unknown>) {
+      if (!Array.isArray(col)) continue
+      for (const el of col as Array<{ id?: string; position?: { x: number; y: number }; size?: { w: number; h: number } }>) {
+        if (el.id && el.position && el.size) push(el.id, el.position, el.size)
+      }
+    }
     return rects
   }
 }

@@ -18,7 +18,7 @@ import type { Connection, ConnectionType, ElbowMode, Multiplicity } from '../ent
 import { parseAttribute, serializeAttribute } from '../entities/Attribute.ts'
 import { parseMethod, serializeMethod } from '../entities/Method.ts'
 import { getElementConfig } from '../config/registry.ts'
-import { LATTE } from '../themes/catppuccin.ts'
+import { LATTE, PRINT } from '../themes/catppuccin.ts'
 
 // ─── JSON persistence ────────────────────────────────────────────────────────
 
@@ -188,14 +188,17 @@ export async function exportDiagramToPng(
   }, 'image/png')
 }
 
-/** Collect all CSS rules and force Latte (light) theme variables for consistent PNG output. */
+/** Collect all CSS rules and inject theme variables for consistent PNG output.
+ *  Uses the Print palette when the Print theme is active, otherwise Latte. */
 function collectStyles(): string {
   const parts: string[] = []
 
-  const latteVars = Object.entries(LATTE)
+  const activeFlavour = document.documentElement.getAttribute('data-theme')
+  const exportPalette = activeFlavour === 'print' ? PRINT : LATTE
+  const themeVars = Object.entries(exportPalette)
     .map(([key, value]) => `  --ctp-${key}: ${value};`)
     .join('\n')
-  parts.push(`:root {\n${latteVars}\n}`)
+  parts.push(`:root {\n${themeVars}\n}`)
 
   for (const sheet of document.styleSheets) {
     try {

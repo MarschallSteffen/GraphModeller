@@ -11,6 +11,7 @@ export const stateConfig: ElementConfig = {
   },
   preferredConnectionType: 'transition',
   supportsMultiplicity: false,
+  shape: 'pill',
 }
 
 export const startStateConfig: ElementConfig = {
@@ -23,6 +24,7 @@ export const startStateConfig: ElementConfig = {
   },
   preferredConnectionType: 'transition',
   supportsMultiplicity: false,
+  shape: 'circle',
 }
 
 export const endStateConfig: ElementConfig = {
@@ -35,4 +37,5 @@ export const endStateConfig: ElementConfig = {
   },
   preferredConnectionType: 'transition',
   supportsMultiplicity: false,
+  shape: 'circle',
 }

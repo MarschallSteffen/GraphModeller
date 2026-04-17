@@ -1,11 +1,12 @@
 import type { ThemeFlavour } from '../themes/catppuccin.ts'
-import { applyTheme, LATTE, FRAPPE, MACCHIATO, MOCHA } from '../themes/catppuccin.ts'
+import { applyTheme, LATTE, FRAPPE, MACCHIATO, MOCHA, PRINT } from '../themes/catppuccin.ts'
 
 export type Tool = 'select' | 'pan' | 'class' | 'package' | 'storage' | 'agent' | 'human-agent' | 'queue' | 'use-case' | 'uc-actor' | 'uc-system' | 'state' | 'start-state' | 'end-state' | 'seq-diagram' | 'seq-fragment' | 'comment'
 
 type ToolChangeListener = (tool: Tool) => void
 
 const FLAVOURS: Array<{ id: ThemeFlavour; label: string; dot: string }> = [
+  { id: 'print',     label: 'Print',     dot: PRINT.base },
   { id: 'latte',     label: 'Latte',     dot: LATTE.base },
   { id: 'frappe',    label: 'Frappé',    dot: FRAPPE.base },
   { id: 'macchiato', label: 'Macchiato', dot: MACCHIATO.base },

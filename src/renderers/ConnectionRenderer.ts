@@ -101,17 +101,17 @@ export function injectMarkerDefs(svg: SVGSVGElement) {
   defs.appendChild(filter)
 }
 
-const DASH_TYPES: ConnectionType[] = ['dependency', 'realization', 'uc-extend', 'uc-include']
-
 type ConnStyle = {
   markerEnd?: string
   stroke?: string
+  dashed?: boolean
+  stereotype?: string
 }
 const CONN_STYLES: Partial<Record<ConnectionType, ConnStyle>> = {
   'association':       { markerEnd: 'url(#arrow-association)' },
-  'dependency':        { markerEnd: 'url(#arrow-dependency)' },
+  'dependency':        { markerEnd: 'url(#arrow-dependency)', dashed: true },
   'inheritance':       { markerEnd: 'url(#arrow-inheritance)' },
-  'realization':       { markerEnd: 'url(#arrow-realization)' },
+  'realization':       { markerEnd: 'url(#arrow-realization)', dashed: true },
   'composition':       { markerEnd: 'url(#arrow-composition)' },
   'aggregation':       { markerEnd: 'url(#arrow-aggregation)' },
   'plain':             {},
@@ -119,10 +119,14 @@ const CONN_STYLES: Partial<Record<ConnectionType, ConnStyle>> = {
   'write':             { markerEnd: 'url(#arrow-storage)', stroke: 'var(--ctp-teal)' },
   'request':           { stroke: 'var(--ctp-mauve)' },
   'uc-association':    { stroke: 'var(--ctp-overlay2)' },
-  'uc-extend':         { markerEnd: 'url(#arrow-uc-extend)', stroke: 'var(--ctp-overlay2)' },
-  'uc-include':        { markerEnd: 'url(#arrow-uc-include)', stroke: 'var(--ctp-overlay2)' },
+  'uc-extend':         { markerEnd: 'url(#arrow-uc-extend)', stroke: 'var(--ctp-overlay2)', dashed: true, stereotype: '«extend»' },
+  'uc-include':        { markerEnd: 'url(#arrow-uc-include)', stroke: 'var(--ctp-overlay2)', dashed: true, stereotype: '«include»' },
   'uc-specialization': { markerEnd: 'url(#arrow-uc-specialization)', stroke: 'var(--ctp-overlay2)' },
   'transition':        { markerEnd: 'url(#arrow-transition)' },
+}
+
+export function getConnStereotype(type: ConnectionType): string {
+  return CONN_STYLES[type]?.stereotype ?? ''
 }
 
 export class ConnectionRenderer {
@@ -226,8 +230,8 @@ export class ConnectionRenderer {
    * x1/y1 are the SOURCE port coords, x2/y2 are the TARGET port coords.
    */
   updatePoints(x1: number, y1: number, x2: number, y2: number, srcPort = 'e', tgtPort = 'w', conn = this.conn, offset = 0, srcRect?: Rect, tgtRect?: Rect) {
-    const isDash = DASH_TYPES.includes(conn.type)
-    this.path.setAttribute('stroke-dasharray', isDash ? '6 3' : 'none')
+    const style = CONN_STYLES[conn.type] ?? {}
+    this.path.setAttribute('stroke-dasharray', style.dashed ? '6 3' : 'none')
     this.pathB.setAttribute('stroke-dasharray', 'none')
     // Reset double-rail overrides (set only for read-write)
     this.path.style.strokeWidth = ''
@@ -278,7 +282,6 @@ export class ConnectionRenderer {
       this.hitPath.setAttribute('d', d)
 
     } else {
-      const style = CONN_STYLES[conn.type] ?? {}
       const d = orthogonalPath(x1, y1, srcPort, x2, y2, tgtPort, offset, srcRect, tgtRect)
       this.path.setAttribute('d', d)
       if (style.markerEnd) {
@@ -292,9 +295,8 @@ export class ConnectionRenderer {
       this.hitPath.setAttribute('d', d)
     }
 
-    // Label and multiplicity — uc-extend/uc-include show stereotype if no custom label
-    const stereotype = conn.type === 'uc-extend' ? '«extend»' : conn.type === 'uc-include' ? '«include»' : null
-    const labelText = conn.label || stereotype || ''
+    // Label and multiplicity — stereotype types show their label if no custom label
+    const labelText = conn.label || style.stereotype || ''
     this.label.textContent = labelText
     const mid = pathMidpoint(x1, y1, srcPort, x2, y2, tgtPort, srcRect, tgtRect)
     this.label.setAttribute('x', String(mid.x))

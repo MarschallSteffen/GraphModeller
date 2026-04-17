@@ -16,4 +16,6 @@ export const storageConfig: ElementConfig = {
     asTarget: ['plain', 'write', 'read-write'],
   },
   supportsMultiplicity: false,
+  supportsProperties: true,
+  shape: 'pill',
 }

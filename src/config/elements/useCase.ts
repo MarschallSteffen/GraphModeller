@@ -11,6 +11,7 @@ export const useCaseConfig: ElementConfig = {
   },
   preferredConnectionType: 'uc-association',
   supportsMultiplicity: false,
+  shape: 'ellipse',
 }
 
 export const ucSystemConfig: ElementConfig = {

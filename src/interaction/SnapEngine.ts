@@ -1,21 +1,24 @@
 /**
  * Snap engine for element dragging.
  *
- * Two snap behaviours:
- * 1. Center alignment — snap the dragged element's center X or Y to any other
+ * Three snap behaviours:
+ * 1. Edge alignment — snap the dragged element's left/right/top/bottom edge to
+ *    any other element's matching or opposing edge within SNAP_THRESHOLD px.
+ * 2. Center alignment — snap the dragged element's center X or Y to any other
  *    element's center X or Y within SNAP_THRESHOLD px.
- * 2. Gap snapping — snap so the gap between the dragged element and an adjacent
- *    element is exactly SNAP_GAP px (80 px), in both vertical and horizontal axes.
+ * 3. Gap snapping — snap so the gap between the dragged element and an adjacent
+ *    element is exactly a SNAP_GAP value (40 or 80 px).
  *    Proximity check: elements must overlap (or be close) on the perpendicular axis.
  *
- * Both axes are evaluated independently. The best snap (smallest error) wins on
- * each axis, considering all close neighbours simultaneously.
+ * All behaviours are evaluated independently on each axis. The best snap
+ * (smallest error) wins, considering all close neighbours simultaneously.
  *
  * Returns adjusted (x, y) for the dragged element's top-left, plus guide lines.
  */
 
 export const SNAP_THRESHOLD = 8   // px — proximity to trigger snap
 export const SNAP_GAPS      = [40, 80]  // px — preferred gaps between adjacent elements
+export const SNAP_RANGE     = 500 // px — max distance between element edges to consider as snap candidate
 
 export interface SnapRect { x: number; y: number; w: number; h: number }
 
@@ -45,19 +48,49 @@ export function applySnap(
   let bestDx = SNAP_THRESHOLD + 1
   let bestDy = SNAP_THRESHOLD + 1
 
-  // ── 1. Center-to-center alignment ──────────────────────────────────────────
   for (const o of others) {
+    // Skip candidates whose nearest bounding-box edge is beyond SNAP_RANGE.
+    // nearX/nearY are the closest edge-to-edge distances on each axis (0 if overlapping).
+    const nearX = Math.max(0, Math.max(o.x - (dragged.x + dragged.w), dragged.x - (o.x + o.w)))
+    const nearY = Math.max(0, Math.max(o.y - (dragged.y + dragged.h), dragged.y - (o.y + o.h)))
+    if (Math.sqrt(nearX * nearX + nearY * nearY) > SNAP_RANGE) continue
+
     const ocx = o.x + o.w / 2
     const ocy = o.y + o.h / 2
 
-    const distX = Math.abs(cx - ocx)
-    const distY = Math.abs(cy - ocy)
+    // ── 1a. Edge alignment — horizontal (X axis) ───────────────────────────
+    // left-to-left, right-to-right, left-to-right, right-to-left
+    const xCandidates: number[] = [
+      o.x               - dragged.x,          // align left edges
+      o.x + o.w         - (dragged.x + dragged.w),  // align right edges
+      o.x + o.w         - dragged.x,          // dragged.left snaps to o.right
+      o.x               - (dragged.x + dragged.w),  // dragged.right snaps to o.left
+    ]
+    for (const delta of xCandidates) {
+      const dist = Math.abs(delta)
+      if (dist < SNAP_THRESHOLD && dist < bestDx) { bestDx = dist; snapDx = delta }
+    }
 
-    if (distX < SNAP_THRESHOLD && distX < bestDx) { bestDx = distX; snapDx = ocx - cx }
-    if (distY < SNAP_THRESHOLD && distY < bestDy) { bestDy = distY; snapDy = ocy - cy }
+    // ── 1b. Edge alignment — vertical (Y axis) ────────────────────────────
+    const yCandidates: number[] = [
+      o.y               - dragged.y,
+      o.y + o.h         - (dragged.y + dragged.h),
+      o.y + o.h         - dragged.y,
+      o.y               - (dragged.y + dragged.h),
+    ]
+    for (const delta of yCandidates) {
+      const dist = Math.abs(delta)
+      if (dist < SNAP_THRESHOLD && dist < bestDy) { bestDy = dist; snapDy = delta }
+    }
+
+    // ── 2. Center-to-center alignment ──────────────────────────────────────
+    const distCx = Math.abs(cx - ocx)
+    const distCy = Math.abs(cy - ocy)
+    if (distCx < SNAP_THRESHOLD && distCx < bestDx) { bestDx = distCx; snapDx = ocx - cx }
+    if (distCy < SNAP_THRESHOLD && distCy < bestDy) { bestDy = distCy; snapDy = ocy - cy }
   }
 
-  // ── 2. Gap snapping — vertical axis ────────────────────────────────────────
+  // ── 3. Gap snapping — vertical axis ────────────────────────────────────────
   // Proximity: elements overlap or are close on the horizontal axis
   for (const o of others) {
     const hOverlap = dragged.x < o.x + o.w + SNAP_THRESHOLD &&
@@ -75,7 +108,7 @@ export function applySnap(
     }
   }
 
-  // ── 3. Gap snapping — horizontal axis ──────────────────────────────────────
+  // ── 4. Gap snapping — horizontal axis ──────────────────────────────────────
   // Proximity: elements overlap or are close on the vertical axis
   for (const o of others) {
     const vOverlap = dragged.y < o.y + o.h + SNAP_THRESHOLD &&
@@ -98,28 +131,50 @@ export function applySnap(
   const snappedCx = snappedX + dragged.w / 2
   const snappedCy = snappedY + dragged.h / 2
 
-  // ── 4. Build guide lines ───────────────────────────────────────────────────
+  // ── 5. Build guide lines ───────────────────────────────────────────────────
   const guides: GuideLine[] = []
 
   for (const o of others) {
+    const nearX = Math.max(0, Math.max(o.x - (snappedX + dragged.w), snappedX - (o.x + o.w)))
+    const nearY = Math.max(0, Math.max(o.y - (snappedY + dragged.h), snappedY - (o.y + o.h)))
+    if (Math.sqrt(nearX * nearX + nearY * nearY) > SNAP_RANGE) continue
+
     const ocx = o.x + o.w / 2
     const ocy = o.y + o.h / 2
 
-    // Vertical guide: shared center X
-    if (Math.abs(snappedCx - ocx) < 0.5) {
-      const minY = Math.min(snappedY, o.y)
-      const maxY = Math.max(snappedY + dragged.h, o.y + o.h)
-      guides.push({ axis: 'v', value: ocx, from: minY - 20, to: maxY + 20 })
+    // Vertical guides: shared edge X or center X
+    const vAlignValues: Array<[number, number]> = [
+      [snappedX,               o.x],               // left-left
+      [snappedX + dragged.w,   o.x + o.w],          // right-right
+      [snappedX,               o.x + o.w],          // left-right
+      [snappedX + dragged.w,   o.x],                // right-left
+      [snappedCx,              ocx],                // center-center
+    ]
+    for (const [a, b] of vAlignValues) {
+      if (Math.abs(a - b) < 0.5) {
+        const minY = Math.min(snappedY, o.y)
+        const maxY = Math.max(snappedY + dragged.h, o.y + o.h)
+        guides.push({ axis: 'v', value: a, from: minY - 20, to: maxY + 20 })
+      }
     }
 
-    // Horizontal guide: shared center Y
-    if (Math.abs(snappedCy - ocy) < 0.5) {
-      const minX = Math.min(snappedX, o.x)
-      const maxX = Math.max(snappedX + dragged.w, o.x + o.w)
-      guides.push({ axis: 'h', value: ocy, from: minX - 20, to: maxX + 20 })
+    // Horizontal guides: shared edge Y or center Y
+    const hAlignValues: Array<[number, number]> = [
+      [snappedY,               o.y],               // top-top
+      [snappedY + dragged.h,   o.y + o.h],          // bottom-bottom
+      [snappedY,               o.y + o.h],          // top-bottom
+      [snappedY + dragged.h,   o.y],                // bottom-top
+      [snappedCy,              ocy],                // center-center
+    ]
+    for (const [a, b] of hAlignValues) {
+      if (Math.abs(a - b) < 0.5) {
+        const minX = Math.min(snappedX, o.x)
+        const maxX = Math.max(snappedX + dragged.w, o.x + o.w)
+        guides.push({ axis: 'h', value: a, from: minX - 20, to: maxX + 20 })
+      }
     }
 
-    // Horizontal guide: vertical gap snap (dragged below or above)
+    // Midpoint guides for gap snaps
     for (const gap of SNAP_GAPS) {
       const gapBelow = Math.abs(snappedY - (o.y + o.h + gap))
       const gapAbove = Math.abs(snappedY + dragged.h + gap - o.y)
@@ -134,8 +189,6 @@ export function applySnap(
         guides.push({ axis: 'h', value: snappedY + dragged.h + gap / 2, from: minX - 20, to: maxX + 20 })
       }
     }
-
-    // Vertical guide: horizontal gap snap (dragged right or left)
     for (const gap of SNAP_GAPS) {
       const gapRight = Math.abs(snappedX - (o.x + o.w + gap))
       const gapLeft  = Math.abs(snappedX + dragged.w + gap - o.x)
@@ -154,3 +207,4 @@ export function applySnap(
 
   return { x: snappedX, y: snappedY, guides }
 }
+

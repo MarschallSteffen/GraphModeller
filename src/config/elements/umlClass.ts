@@ -11,6 +11,7 @@ export const umlClassConfig: ElementConfig = {
     asTarget: ['plain', 'association', 'composition', 'aggregation', 'inheritance', 'realization', 'dependency'],
   },
   supportsMultiplicity: true,
+  supportsProperties: true,
 }
 
 export const umlPackageConfig: ElementConfig = {

@@ -1,4 +1,4 @@
-export type ThemeFlavour = 'latte' | 'frappe' | 'macchiato' | 'mocha'
+export type ThemeFlavour = 'latte' | 'frappe' | 'macchiato' | 'mocha' | 'print'
 
 /** Catppuccin colour palettes — all values are CSS hex strings */
 const palettes: Record<ThemeFlavour, Record<string, string>> = {
@@ -114,6 +114,36 @@ const palettes: Record<ThemeFlavour, Record<string, string>> = {
     flamingo:'#f2cdcd',
     rosewater:'#f5e0dc',
   },
+  // Print theme — white background, black ink, no colour tinting.
+  // All tokens maximise contrast for paper/PDF output.
+  print: {
+    base:    '#ffffff',
+    mantle:  '#f9f9f9',
+    crust:   '#f0f0f0',
+    surface0:'#f2f2f2',  // entity body fill — very light grey
+    surface1:'#e8e8e8',  // entity header fill — slightly darker
+    surface2:'#d0d0d0',
+    overlay0:'#909090',
+    overlay1:'#484848',  // connection lines / borders — ~9:1 on white
+    overlay2:'#303030',
+    subtext0:'#1a1a1a',  // labels — near-black
+    subtext1:'#0d0d0d',
+    text:    '#000000',
+    lavender:'#3333aa',
+    blue:    '#0000bb',
+    sapphire:'#005070',
+    sky:     '#005f78',
+    teal:    '#004d4d',
+    green:   '#1a4a1a',
+    yellow:  '#e8a000',
+    peach:   '#6b3000',
+    maroon:  '#6b1a1a',
+    red:     '#bb0000',
+    mauve:   '#520070',
+    pink:    '#6b0050',
+    flamingo:'#6b2020',
+    rosewater:'#6b3030',
+  },
 }
 
 export function applyTheme(flavour: ThemeFlavour) {
@@ -136,3 +166,4 @@ export const LATTE     = palettes.latte
 export const FRAPPE    = palettes.frappe
 export const MACCHIATO = palettes.macchiato
 export const MOCHA     = palettes.mocha
+export const PRINT     = palettes.print

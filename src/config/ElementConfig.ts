@@ -47,4 +47,14 @@ export interface ElementConfig {
    * multiplicity/ordinality fields in the connection popover.
    */
   supportsMultiplicity: boolean
+  /**
+   * Whether to show the Element Properties panel (multiInstance / flowReversed toggles)
+   * when this element is selected. Defaults to false when absent.
+   */
+  supportsProperties?: boolean
+  /**
+   * Border shape used for hit-testing and annotation pin-line geometry.
+   * Defaults to 'rect' when absent.
+   */
+  shape?: 'rect' | 'pill' | 'ellipse' | 'circle'
 }

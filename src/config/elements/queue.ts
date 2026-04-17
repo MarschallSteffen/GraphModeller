@@ -13,4 +13,6 @@ export const queueConfig: ElementConfig = {
   },
   preferredConnectionType: 'plain',
   supportsMultiplicity: false,
+  supportsProperties: true,
+  shape: 'pill',
 }

@@ -15,7 +15,7 @@ import type { ActiveSpan, InsertSlot } from './renderers/SequenceLifelineRendere
 import { SequenceDiagramRenderer } from './renderers/SequenceDiagramRenderer.ts'
 import { CombinedFragmentRenderer } from './renderers/CombinedFragmentRenderer.ts'
 import { CommentRenderer } from './renderers/CommentRenderer.ts'
-import { ConnectionRenderer, injectMarkerDefs } from './renderers/ConnectionRenderer.ts'
+import { ConnectionRenderer, injectMarkerDefs, getConnStereotype } from './renderers/ConnectionRenderer.ts'
 import { DragController } from './interaction/DragController.ts'
 import { ResizeController } from './interaction/ResizeController.ts'
 import { ConnectionController } from './interaction/ConnectionController.ts'
@@ -409,15 +409,8 @@ function initElementDescriptors() {
 initElementDescriptors()
 
 /** Get all elements as {kind, id, x, y, w, h} for rubber-band / hit-testing */
-const PILL_KINDS    = new Set<ElementKind>(['state', 'storage', 'queue'])
-const ELLIPSE_KINDS = new Set<ElementKind>(['use-case'])
-const CIRCLE_KINDS  = new Set<ElementKind>(['start-state', 'end-state'])
-
 function elementShape(kind: ElementKind): string {
-  if (ELLIPSE_KINDS.has(kind)) return 'ellipse'
-  if (CIRCLE_KINDS.has(kind))  return 'circle'
-  if (PILL_KINDS.has(kind))    return 'pill'
-  return 'rect'
+  return getElementConfig(kind)?.shape ?? 'rect'
 }
 
 // ─── Shape-aware border point helpers (mirrors CommentRenderer) ───────────────
@@ -495,7 +488,7 @@ function getAllElementRects() {
     const items = (d[desc.collection] as Array<{ id: string; position: { x: number; y: number }; size: { w: number; h: number } }>) ?? []
     return items.map(el => {
       const rs = desc.renderers.get(el.id)?.getRenderedSize() ?? el.size
-      const isPill = PILL_KINDS.has(desc.kind as ElementKind)
+      const isPill = elementShape(desc.kind as ElementKind) === 'pill'
       return {
         kind: desc.kind as ElementKind, id: el.id,
         x: el.position.x, y: el.position.y, w: rs.w, h: rs.h,
@@ -555,7 +548,8 @@ function getContainedElements(containerId: string): Array<{ kind: ElementKind; i
   return result
 }
 
-const drag    = new DragController(store, getSvgPoint, getContainedElements, updateSnapGuides)
+const drag    = new DragController(store, getSvgPoint, getContainedElements, updateSnapGuides,
+  (excludeIds) => getAllElementRects().filter(r => !excludeIds.has(r.id)))
 const resize  = new ResizeController(store, getSvgPoint, getMinSize, () => store.state.viewport.zoom)
 const connect = new ConnectionController(store, svg, viewGroup, getSvgPoint, showConnectionPopover)
 
@@ -1254,37 +1248,30 @@ function showPropertiesForSelection() {
 
   const item = items[0]
 
-  // Kinds with no properties panel
-  if (item.kind === 'package' || item.kind === 'connection' ||
-      item.kind === 'seq-diagram' || item.kind === 'seq-fragment' ||
-      item.kind === 'uc-system' || item.kind === 'use-case' ||
-      item.kind === 'state' || item.kind === 'start-state' || item.kind === 'end-state') {
+  type PatchFn = (patch: { multiInstance?: boolean; flowReversed?: boolean }) => void
+
+  const found = store.findAnyElement(item.id) as (ReturnType<typeof store.findAnyElement> & { multiInstance?: boolean; flowReversed?: boolean }) | undefined
+  if (!found) { hideElementPropertiesPanel(); return }
+
+  // Use elementType (e.g. 'agent', 'human-agent') not kind (e.g. 'actor') because
+  // multiple elementTypes share one ELEMENTS kind entry ('actor').
+  if (!getElementConfig(found.elementType ?? item.kind)?.supportsProperties) {
     hideElementPropertiesPanel(); return
   }
 
-  type PatchFn = (patch: { multiInstance?: boolean; flowReversed?: boolean }) => void
+  const elPosition = found.position
+  const elSize = found.size
+  const multiInstance = found.multiInstance ?? false
+  const flowReversed = found.flowReversed
 
-  let elPosition: { x: number; y: number } | undefined
-  let elSize: { w: number; h: number } | undefined
-  let multiInstance = false
-  let flowReversed: boolean | undefined
-  let updateFn: PatchFn | undefined
-
-  if (item.kind === 'class') {
-    const found = store.state.classes.find(c => c.id === item.id)
-    if (found) { elPosition = found.position; elSize = found.size; multiInstance = found.multiInstance ?? false; updateFn = p => store.updateClass(item.id, p) }
-  } else if (item.kind === 'storage') {
-    const found = store.state.storages.find(s => s.id === item.id)
-    if (found) { elPosition = found.position; elSize = found.size; multiInstance = found.multiInstance ?? false; updateFn = p => store.updateStorage(item.id, p) }
-  } else if (item.kind === 'actor') {
-    const found = store.state.actors.find(a => a.id === item.id)
-    if (found) { elPosition = found.position; elSize = found.size; multiInstance = found.multiInstance ?? false; updateFn = p => store.updateActor(item.id, p) }
-  } else if (item.kind === 'queue') {
-    const found = store.state.queues.find(q => q.id === item.id)
-    if (found) { elPosition = found.position; elSize = found.size; multiInstance = found.multiInstance ?? false; flowReversed = found.flowReversed ?? false; updateFn = p => store.updateQueue(item.id, p) }
+  const UPDATE_FNS: Partial<Record<ElementKind, PatchFn>> = {
+    'class':       p => store.updateClass(item.id, p),
+    'storage':     p => store.updateStorage(item.id, p),
+    'actor':       p => store.updateActor(item.id, p),
+    'queue':       p => store.updateQueue(item.id, p),
   }
-
-  if (!elPosition || !elSize || !updateFn) { hideElementPropertiesPanel(); return }
+  const updateFn = UPDATE_FNS[item.kind as ElementKind]
+  if (!updateFn) { hideElementPropertiesPanel(); return }
 
   const d = store.state
   const svgRect = svg.getBoundingClientRect()
@@ -1349,7 +1336,7 @@ function wireElementInteraction(
     const multiSelected = selection.items.length > 1 && selection.isSelected(id)
     if (!multiSelected) {
       const { x, y, w, h } = getElData()
-      const elData = { kind, id, x, y, w, h, ...(PILL_KINDS.has(kind) ? { ewZone: h / 2 } : {}) }
+      const elData = { kind, id, x, y, w, h, ...(elementShape(kind) === 'pill' ? { ewZone: h / 2 } : {}) }
       const resizeHit = resize.hitTest(e, [elData])
       if (resizeHit) {
         if (noVerticalResize && (resizeHit.edge === 'n' || resizeHit.edge === 's')) {
@@ -1898,8 +1885,7 @@ function refreshConnections() {
     if (!r) continue
     const mid = r.getLabelMidpoint()
     if (!mid) continue
-    const text = conn.label
-      || (conn.type === 'uc-extend' ? '«extend»' : conn.type === 'uc-include' ? '«include»' : '')
+    const text = conn.label || getConnStereotype(conn.type)
     if (!text) continue
     connLabelBoxes.push({ id: conn.id, x: mid.x, y: mid.y, w: estimateTextWidth(text, LABEL_FONT_SIZE) + 4, h: LABEL_H })
   }
@@ -2746,7 +2732,17 @@ svg.addEventListener('wheel', e => {
   e.preventDefault()
   const vp = store.state.viewport
   const newZoom = Math.min(4, Math.max(0.2, vp.zoom * (e.deltaY < 0 ? 1.1 : 0.9)))
-  store.updateViewport({ zoom: newZoom })
+
+  // Keep the canvas point under the cursor fixed during zoom.
+  // cursor in SVG element space → canvas point before zoom → recompute offset
+  const svgRect = svg.getBoundingClientRect()
+  const cursorX = e.clientX - svgRect.left
+  const cursorY = e.clientY - svgRect.top
+  // canvasPoint = (cursor - offset) / oldZoom  →  newOffset = cursor - canvasPoint * newZoom
+  const newX = cursorX - ((cursorX - vp.x) / vp.zoom) * newZoom
+  const newY = cursorY - ((cursorY - vp.y) / vp.zoom) * newZoom
+
+  store.updateViewport({ zoom: newZoom, x: newX, y: newY })
   applyViewport()
 }, { passive: false })
 

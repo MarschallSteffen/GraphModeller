@@ -668,15 +668,18 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 4px 0 6px;
+  padding: 6px 4px 6px;
+  border-top: 1px solid var(--ctp-surface2);
 }
 .theme-dot {
   width: 20px; height: 20px;
   border-radius: 50%;
-  border: 2px solid transparent;
+  border: 2px solid var(--ctp-overlay0);
   cursor: pointer;
 }
 .theme-dot[data-active='true'] { border-color: var(--ctp-lavender); }
+/* Print dot active uses a high-contrast accent so it stands out on the white swatch */
+.theme-dot[data-theme='print'][data-active='true'] { border-color: var(--ctp-lavender); }
 
 /* ── Storage element ───────────────────────────────────────────────────── */
 .uml-storage { cursor: move; }
