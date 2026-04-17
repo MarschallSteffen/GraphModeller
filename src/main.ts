@@ -2187,18 +2187,25 @@ function refreshSeqDiagram(sd: SequenceDiagram, sdR: SequenceDiagramRenderer) {
         merged.push({ yStart: localStart, yEnd: localEnd, showPort: false })
       }
     }
-    if (merged.length > 0) merged[merged.length - 1].showPort = true
+    if (merged.length > 0) merged[merged.length - 1].showPort = false
     sdR.getLifelineRenderer(ll.id)?.updateActiveBars(merged)
   }
 
-  // Push insert slot Ys to renderers
+  // Push insert slot Ys to renderers.
+  // Slots are placed at every global time-axis boundary (between every used slot across
+  // all lifelines), so each lifeline can accept a message at any point in time — not just
+  // where it already has messages.
+  const allGlobalSlots = [...new Set(events.map(ev => ev.globalSlot))].sort((a, b) => a - b)
+
+  // Build the complete set of absolute-Y mid-points for every used global slot
+  const globalSlotAbsYs = allGlobalSlots.map(slot => baselineY + slot * SLOT_H + SLOT_H / 2)
+
   for (const ll of lifelines) {
     const msgs = ll.messages
     const msgSlotLocalYs = msgs.map((msg, idx) => {
       const ephemeral = (msg as SequenceMessage & { _ephemeralSlot?: number })._ephemeralSlot
       const globalSlot = msg.slotIndex ?? ephemeral ?? idx
       const absY = baselineY + globalSlot * SLOT_H + SLOT_H / 2
-      // Local Y within the lifeline renderer (relative to container top = sd.position.y + ll.position.y = sd.position.y since ll.position.y=0)
       return absY - sd.position.y
     })
 
@@ -2206,22 +2213,25 @@ function refreshSeqDiagram(sd: SequenceDiagram, sdR: SequenceDiagramRenderer) {
     // Re-run update so computedH reflects the new msgLocalYs (e.g. after message deletion)
     sdR.getLifelineRenderer(ll.id)?.update(ll)
 
-    // Collect ALL events touching this lifeline (as source or target) for slot placement
-    const touchingYs = events
-      .filter(ev => ev.srcId === ll.id || ev.tgtId === ll.id)
-      .map(ev => ev.absY - sd.position.y)
-    const uniqueYs = [...new Set(touchingYs)].sort((a, b) => a - b)
-
+    // Insert slots at every inter-slot gap on the global time axis.
+    // One slot before the first used global slot, one between each pair, one after the last.
     const slotYs: number[] = []
-    if (uniqueYs.length === 0) {
+    if (globalSlotAbsYs.length === 0) {
+      // Empty diagram — single slot in the middle of the first row
       slotYs.push(SEQ_HEADER_H + SLOT_H / 2)
     } else {
-      slotYs.push(SEQ_HEADER_H + (uniqueYs[0] - SEQ_HEADER_H) / 2)
-      for (let i = 1; i < uniqueYs.length; i++) {
-        slotYs.push((uniqueYs[i - 1] + uniqueYs[i]) / 2)
+      const firstAbsY = globalSlotAbsYs[0]
+      const lastAbsY  = globalSlotAbsYs[globalSlotAbsYs.length - 1]
+      // Before first message
+      slotYs.push((SEQ_HEADER_H + sd.position.y + firstAbsY) / 2 - sd.position.y)
+      // Between each pair of consecutive used slots
+      for (let i = 1; i < globalSlotAbsYs.length; i++) {
+        slotYs.push((globalSlotAbsYs[i - 1] + globalSlotAbsYs[i]) / 2 - sd.position.y)
       }
-      slotYs.push(uniqueYs[uniqueYs.length - 1] + SLOT_H / 2)
+      // After last message
+      slotYs.push(lastAbsY + SLOT_H / 2 - sd.position.y)
     }
+
     sdR.getLifelineRenderer(ll.id)?.updateInsertSlots(slotYs)
   }
 
