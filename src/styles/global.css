@@ -413,7 +413,7 @@ body {
   background: var(--ctp-base);
   /* subtle dot-grid */
   background-image: radial-gradient(circle, var(--ctp-surface0) 1px, transparent 1px);
-  background-size: 24px 24px;
+  background-size: 50px 50px;
 }
 #canvas-container.pan-mode,
 #canvas-container.pan-mode * { cursor: grab !important; }

@@ -86,6 +86,13 @@ export class DiagramStore {
     this._undoGroupActive = false
   }
 
+  /** Temporarily re-open the undo group so the next mutation shares the last snapshot. */
+  extendUndoGroup() {
+    this._undoGroupActive = true
+  }
+
+  get isUndoGroupActive() { return this._undoGroupActive }
+
   private pushUndoSnapshot() {
     this.undoStack.push(JSON.parse(JSON.stringify(this.diagram)) as Diagram)
     if (this.undoStack.length > MAX_UNDO) this.undoStack.shift()
@@ -179,6 +186,17 @@ export class DiagramStore {
     this.diagram.connections = this.diagram.connections.filter(
       cn => cn.source.elementId !== id && cn.target.elementId !== id,
     )
+  }
+
+  /** Clear pinnedTo on any comment pinned to the given element id, emitting comment:update for each. */
+  private cleanupPinsForElement(id: string) {
+    for (const c of this.diagram.comments) {
+      if (c.pinnedTo === id) {
+        c.pinnedTo = null
+        c.pinnedOffset = null
+        this.emit('comment:update', c)
+      }
+    }
   }
 
   /** Ensure arrays exist and run auto-layout for elements without explicit positions. */
@@ -304,7 +322,7 @@ export class DiagramStore {
   removeClass(id: string) {
     this.pushUndoSnapshot()
     this.diagram.classes = this.diagram.classes.filter(c => c.id !== id)
-    this.cleanupConnectionsForElement(id); this.emit('class:remove', id)
+    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id); this.emit('class:remove', id)
   }
 
   // ── Packages ─────────────────────────────────────────────────────────────
@@ -317,7 +335,7 @@ export class DiagramStore {
   removePackage(id: string) {
     this.pushUndoSnapshot()
     this.diagram.packages = this.diagram.packages.filter(p => p.id !== id)
-    this.cleanupConnectionsForElement(id); this.emit('package:remove', id)
+    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id); this.emit('package:remove', id)
   }
 
   // ── Storages ─────────────────────────────────────────────────────────────
@@ -330,7 +348,7 @@ export class DiagramStore {
   removeStorage(id: string) {
     this.pushUndoSnapshot()
     this.diagram.storages = this.diagram.storages.filter(s => s.id !== id)
-    this.cleanupConnectionsForElement(id); this.emit('storage:remove', id)
+    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id); this.emit('storage:remove', id)
   }
 
   // ── Actors ───────────────────────────────────────────────────────────────
@@ -343,7 +361,7 @@ export class DiagramStore {
   removeActor(id: string) {
     this.pushUndoSnapshot()
     this.diagram.actors = this.diagram.actors.filter(a => a.id !== id)
-    this.cleanupConnectionsForElement(id); this.emit('actor:remove', id)
+    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id); this.emit('actor:remove', id)
   }
 
   // ── Queues ───────────────────────────────────────────────────────────────
@@ -356,7 +374,7 @@ export class DiagramStore {
   removeQueue(id: string) {
     this.pushUndoSnapshot()
     this.diagram.queues = this.diagram.queues.filter(q => q.id !== id)
-    this.cleanupConnectionsForElement(id); this.emit('queue:remove', id)
+    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id); this.emit('queue:remove', id)
   }
 
   // ── Connections ──────────────────────────────────────────────────────────
@@ -392,7 +410,7 @@ export class DiagramStore {
   removeUseCase(id: string) {
     this.pushUndoSnapshot()
     this.diagram.useCases = this.diagram.useCases.filter(u => u.id !== id)
-    this.cleanupConnectionsForElement(id); this.emit('use-case:remove', id)
+    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id); this.emit('use-case:remove', id)
   }
 
   // ── UC Systems ───────────────────────────────────────────────────────────
@@ -405,7 +423,7 @@ export class DiagramStore {
   removeUCSystem(id: string) {
     this.pushUndoSnapshot()
     this.diagram.ucSystems = this.diagram.ucSystems.filter(u => u.id !== id)
-    this.cleanupConnectionsForElement(id); this.emit('uc-system:remove', id)
+    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id); this.emit('uc-system:remove', id)
   }
 
   // ── States ───────────────────────────────────────────────────────────────
@@ -418,7 +436,7 @@ export class DiagramStore {
   removeState(id: string) {
     this.pushUndoSnapshot()
     this.diagram.states = this.diagram.states.filter(s => s.id !== id)
-    this.cleanupConnectionsForElement(id); this.emit('state:remove', id)
+    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id); this.emit('state:remove', id)
   }
 
   // ── Start States ─────────────────────────────────────────────────────────
@@ -431,7 +449,7 @@ export class DiagramStore {
   removeStartState(id: string) {
     this.pushUndoSnapshot()
     this.diagram.startStates = this.diagram.startStates.filter(s => s.id !== id)
-    this.cleanupConnectionsForElement(id); this.emit('start-state:remove', id)
+    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id); this.emit('start-state:remove', id)
   }
 
   // ── End States ───────────────────────────────────────────────────────────
@@ -444,7 +462,7 @@ export class DiagramStore {
   removeEndState(id: string) {
     this.pushUndoSnapshot()
     this.diagram.endStates = this.diagram.endStates.filter(s => s.id !== id)
-    this.cleanupConnectionsForElement(id); this.emit('end-state:remove', id)
+    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id); this.emit('end-state:remove', id)
   }
 
   // ── Sequence Diagrams ────────────────────────────────────────────────────
@@ -457,7 +475,7 @@ export class DiagramStore {
   removeSequenceDiagram(id: string) {
     this.pushUndoSnapshot()
     this.diagram.sequenceDiagrams = this.diagram.sequenceDiagrams.filter(s => s.id !== id)
-    this.emit('seq-diagram:remove', id)
+    this.cleanupPinsForElement(id); this.emit('seq-diagram:remove', id)
   }
 
   // ── Combined Fragments ───────────────────────────────────────────────────
@@ -470,7 +488,7 @@ export class DiagramStore {
   removeCombinedFragment(id: string) {
     this.pushUndoSnapshot()
     this.diagram.combinedFragments = this.diagram.combinedFragments.filter(f => f.id !== id)
-    this.emit('seq-fragment:remove', id)
+    this.cleanupPinsForElement(id); this.emit('seq-fragment:remove', id)
   }
 
   // ── Comments ─────────────────────────────────────────────────────────────
@@ -478,7 +496,7 @@ export class DiagramStore {
   addComment(c: Comment)                       { this.pushUndoSnapshot(); this.diagram.comments.push(c); this.emit('comment:add', c) }
   updateComment(id: string, patch: Partial<Comment>) {
     const el = this.diagram.comments.find(c => c.id === id); if (!el) return
-    this.pushUndoSnapshot(); Object.assign(el, patch); this.emit('comment:update', el)
+    if (!this._undoGroupActive) this.pushUndoSnapshot(); Object.assign(el, patch); this.emit('comment:update', el)
   }
   removeComment(id: string) {
     this.pushUndoSnapshot()

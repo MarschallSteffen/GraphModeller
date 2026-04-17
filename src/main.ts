@@ -191,13 +191,22 @@ selection.onChange(() => updateEditMenu())
 
 let showComments = JSON.parse(localStorage.getItem('archetype:show-comments') ?? 'true') as boolean
 
-new ViewMenu(viewMenuAnchor, {
+const viewMenu = new ViewMenu(viewMenuAnchor, {
   onToggleComments: (show: boolean) => {
     showComments = show
     localStorage.setItem('archetype:show-comments', JSON.stringify(show))
     commentLayer.style.display = show ? '' : 'none'
   },
 }, showComments)
+
+function ensureCommentsVisible() {
+  if (!showComments) {
+    showComments = true
+    localStorage.setItem('archetype:show-comments', JSON.stringify(true))
+    commentLayer.style.display = ''
+    viewMenu.setCommentsVisible(true)
+  }
+}
 
 // AI prompt button — pushed to the right end of the titlebar
 const aiBtnAnchor = document.createElement('div')
@@ -398,7 +407,85 @@ function initElementDescriptors() {
 initElementDescriptors()
 
 /** Get all elements as {kind, id, x, y, w, h} for rubber-band / hit-testing */
-const PILL_KINDS = new Set<ElementKind>(['state', 'storage', 'queue', 'use-case'])
+const PILL_KINDS    = new Set<ElementKind>(['state', 'storage', 'queue'])
+const ELLIPSE_KINDS = new Set<ElementKind>(['use-case'])
+const CIRCLE_KINDS  = new Set<ElementKind>(['start-state', 'end-state'])
+
+function elementShape(kind: ElementKind): string {
+  if (ELLIPSE_KINDS.has(kind)) return 'ellipse'
+  if (CIRCLE_KINDS.has(kind))  return 'circle'
+  if (PILL_KINDS.has(kind))    return 'pill'
+  return 'rect'
+}
+
+// ─── Shape-aware border point helpers (mirrors CommentRenderer) ───────────────
+
+function borderPointRect(rx: number, ry: number, rw: number, rh: number, px: number, py: number): { x: number; y: number } {
+  const cx = rx + rw / 2, cy = ry + rh / 2
+  const dx = px - cx, dy = py - cy
+  if (dx === 0 && dy === 0) return { x: cx, y: ry }
+  const scaleX = rw / 2 / Math.abs(dx || 1e-9)
+  const scaleY = rh / 2 / Math.abs(dy || 1e-9)
+  return { x: cx + dx * Math.min(scaleX, scaleY), y: cy + dy * Math.min(scaleX, scaleY) }
+}
+
+function borderPointPill(rx: number, ry: number, rw: number, rh: number, px: number, py: number): { x: number; y: number } {
+  const r = rh / 2
+  const cy = ry + r
+  const capCX = Math.max(rx + r, Math.min(px, rx + rw - r))
+  const dx = px - capCX, dy = py - cy
+  const len = Math.hypot(dx, dy)
+  if (len === 0) return { x: capCX, y: ry }
+  return { x: capCX + (dx / len) * r, y: cy + (dy / len) * r }
+}
+
+function borderPointEllipse(rx: number, ry: number, rw: number, rh: number, px: number, py: number): { x: number; y: number } {
+  const cx = rx + rw / 2, cy = ry + rh / 2
+  const dx = px - cx, dy = py - cy
+  if (dx === 0 && dy === 0) return { x: cx, y: ry }
+  const len = Math.hypot(dx / (rw / 2), dy / (rh / 2))
+  return { x: cx + dx / len, y: cy + dy / len }
+}
+
+function borderPointCircle(rx: number, ry: number, rw: number, rh: number, px: number, py: number): { x: number; y: number } {
+  const cx = rx + rw / 2, cy = ry + rh / 2
+  const r = Math.min(rw, rh) / 2
+  const dx = px - cx, dy = py - cy
+  const len = Math.hypot(dx, dy)
+  if (len === 0) return { x: cx, y: cy - r }
+  return { x: cx + (dx / len) * r, y: cy + (dy / len) * r }
+}
+
+function borderPointForShape(shape: string, rx: number, ry: number, rw: number, rh: number, px: number, py: number): { x: number; y: number } {
+  if (shape === 'pill')    return borderPointPill(rx, ry, rw, rh, px, py)
+  if (shape === 'ellipse') return borderPointEllipse(rx, ry, rw, rh, px, py)
+  if (shape === 'circle')  return borderPointCircle(rx, ry, rw, rh, px, py)
+  return borderPointRect(rx, ry, rw, rh, px, py)
+}
+
+/**
+ * True border-to-border distance between annotation rect and a shaped element.
+ * Finds nearest point on each shape's border toward the other's center, then
+ * measures distance between those two surface points (negative = overlapping).
+ */
+function shapedBorderDist(
+  annX: number, annY: number, annW: number, annH: number,
+  elX: number,  elY: number,  elW: number,  elH: number, shape: string,
+): number {
+  const annCX = annX + annW / 2, annCY = annY + annH / 2
+  const elCX  = elX  + elW  / 2, elCY  = elY  + elH  / 2
+  // Nearest point on annotation rect border toward element center
+  const p1 = borderPointRect(annX, annY, annW, annH, elCX, elCY)
+  // Nearest point on element's shaped border toward annotation center
+  const p2 = borderPointForShape(shape, elX, elY, elW, elH, annCX, annCY)
+  // Signed distance: negative means the two borders overlap / annotation is inside
+  const dx = p2.x - p1.x, dy = p2.y - p1.y
+  const dist = Math.hypot(dx, dy)
+  // Determine sign: positive if borders have a gap, negative if annotation center
+  // is inside the element (i.e. p1 and p2 are on opposite sides of each other)
+  const dot = dx * (elCX - annCX) + dy * (elCY - annCY)
+  return dot >= 0 ? dist : -dist
+}
 
 function getAllElementRects() {
   const d = store.state
@@ -941,8 +1028,16 @@ function addSeqFragmentRenderer(frag: CombinedFragment) {
   wireSeqFragmentInteraction(r, frag)
 }
 
+function getRenderedSizeById(id: string): { w: number; h: number } | undefined {
+  for (const desc of ELEMENTS) {
+    const r = desc.renderers.get(id)
+    if (r) return r.getRenderedSize()
+  }
+  return undefined
+}
+
 function addCommentRenderer(comment: Comment) {
-  const r = new CommentRenderer(comment, store)
+  const r = new CommentRenderer(comment, store, getRenderedSizeById)
   commentLayer.appendChild(r.el)
   commentRenderers.set(comment.id, r)
   wireCommentInteraction(r, comment)
@@ -989,34 +1084,41 @@ function wireCommentInteraction(r: CommentRenderer, comment: Comment) {
   })
 
   // Pin-on-drop: live preview during drag + commit on mouseup
-  const PIN_RADIUS = 50
+  // PIN_RADIUS is in screen pixels — converted to canvas units per call so it scales with zoom
+  const PIN_RADIUS_PX = 50
 
-  function findClosestPinTarget(c: Comment): { id: string; el: { position: { x: number; y: number }; size: { w: number; h: number } } } | null {
-    const cx = c.position.x + c.size.w / 2
-    const cy = c.position.y + c.size.h / 2
+  // Container kinds render below leaf elements; prefer leaf elements when pinning
+  const PIN_CONTAINER_KINDS = new Set<ElementKind>(['package', 'uc-system', 'seq-diagram', 'seq-fragment'])
+
+  function findClosestPinTarget(c: Comment): { id: string; kind: ElementKind; el: { position: { x: number; y: number }; size: { w: number; h: number } } } | null {
+    const PIN_RADIUS = PIN_RADIUS_PX / store.state.viewport.zoom
     let foundId: string | null = null
+    let foundKind: ElementKind | null = null
     let foundEl: { position: { x: number; y: number }; size: { w: number; h: number } } | null = null
     let bestDist = Infinity
+    let bestIsContainer = true  // a non-container always beats a container at any distance
     for (const desc of ELEMENTS) {
       if (desc.kind === 'comment') continue
+      const isContainer = PIN_CONTAINER_KINDS.has(desc.kind as ElementKind)
       const items = (store.state as any)[desc.collection] as Array<{ id: string; position: { x: number; y: number }; size: { w: number; h: number } }> ?? []
       for (const el of items) {
-        // Nearest point on target rect to comment center
-        const nearTargX = Math.max(el.position.x, Math.min(cx, el.position.x + el.size.w))
-        const nearTargY = Math.max(el.position.y, Math.min(cy, el.position.y + el.size.h))
-        // Nearest point on comment rect to that target point
-        const nearCommX = Math.max(c.position.x, Math.min(nearTargX, c.position.x + c.size.w))
-        const nearCommY = Math.max(c.position.y, Math.min(nearTargY, c.position.y + c.size.h))
-        // Border-to-border distance (0 when overlapping)
-        const dist = Math.hypot(nearCommX - nearTargX, nearCommY - nearTargY)
-        if (dist < PIN_RADIUS && dist < bestDist) {
+        const renderedSize = getRenderedSizeById(el.id) ?? el.size
+        const shape = elementShape(desc.kind as ElementKind)
+        const dist = shapedBorderDist(c.position.x, c.position.y, c.size.w, c.size.h, el.position.x, el.position.y, renderedSize.w, renderedSize.h, shape)
+        if (dist >= PIN_RADIUS) continue
+        // Prefer non-containers over containers; within same tier prefer closest
+        const beats = bestIsContainer && !isContainer || dist < bestDist && isContainer === bestIsContainer
+        if (beats) {
           bestDist = dist
+          bestIsContainer = isContainer
           foundId = el.id
-          foundEl = el
+          foundKind = desc.kind as ElementKind
+          // Use rendered size so pin line and offset use the actual visual bounds
+          foundEl = { position: el.position, size: renderedSize }
         }
       }
     }
-    return foundId && foundEl ? { id: foundId, el: foundEl } : null
+    return foundId && foundKind && foundEl ? { id: foundId, kind: foundKind, el: foundEl } : null
   }
 
   r.el.addEventListener('mousedown', () => {
@@ -1024,7 +1126,7 @@ function wireCommentInteraction(r: CommentRenderer, comment: Comment) {
       const c = store.state.comments.find(c => c.id === comment.id)
       if (!c) return
       const hit = findClosestPinTarget(c)
-      r.setDragPinPreview(hit ? { x: hit.el.position.x, y: hit.el.position.y, w: hit.el.size.w, h: hit.el.size.h } : null)
+      r.setDragPinPreview(hit ? { x: hit.el.position.x, y: hit.el.position.y, w: hit.el.size.w, h: hit.el.size.h, shape: elementShape(hit.kind) } : null)
     }
     const onUp = () => {
       window.removeEventListener('mousemove', onMove)
@@ -1033,12 +1135,17 @@ function wireCommentInteraction(r: CommentRenderer, comment: Comment) {
       if (!c) return
       const hit = findClosestPinTarget(c)
       if (hit) {
+        // Extend drag's undo group so pin commit shares the same undo step
+        store.extendUndoGroup()
         store.updateComment(comment.id, {
           pinnedTo: hit.id,
           pinnedOffset: { x: c.position.x - hit.el.position.x, y: c.position.y - hit.el.position.y },
         })
+        store.endUndoGroup()
       } else if (c.pinnedTo) {
+        store.extendUndoGroup()
         store.updateComment(comment.id, { pinnedTo: null, pinnedOffset: null })
+        store.endUndoGroup()
       }
       // Renderer will re-render via store event; no need to clear preview manually
     }
@@ -1627,6 +1734,7 @@ store.on(ev => {
   }
 
   // Special side-effects for specific events
+  if (ev.type === 'comment:add') ensureCommentsVisible()
   if (ev.type === 'seq-diagram:add')    refreshSequenceConnections()
   if (ev.type === 'seq-diagram:update') { refreshSequenceConnections(); refreshLifelineAddButtons() }
   if (ev.type === 'seq-diagram:remove') refreshSequenceConnections()
@@ -2631,6 +2739,7 @@ canvasContainer.appendChild(zoomCtrl)
 toolbar.onToolChange(tool => {
   canvasContainer.classList.toggle('pan-mode', tool === 'pan')
   if (tool !== 'pan') canvasContainer.classList.remove('pan-grabbing')
+  if (tool === 'comment') ensureCommentsVisible()
 })
 if (toolbar.activeTool === 'pan') canvasContainer.classList.add('pan-mode')
 
@@ -2666,6 +2775,12 @@ document.getElementById('zoom-reset')!.addEventListener('click', () => {
 function applyViewport() {
   const { x, y, zoom } = store.state.viewport
   viewGroup.setAttribute('transform', `translate(${x},${y}) scale(${zoom})`)
+  // Shift dot-grid background by pan offset so it appears fixed in screen space
+  const DOT_GRID_SIZE = 50 * zoom
+  const bgX = ((x % DOT_GRID_SIZE) + DOT_GRID_SIZE) % DOT_GRID_SIZE
+  const bgY = ((y % DOT_GRID_SIZE) + DOT_GRID_SIZE) % DOT_GRID_SIZE
+  ;(svg.parentElement as HTMLElement).style.backgroundSize = `${DOT_GRID_SIZE}px ${DOT_GRID_SIZE}px`
+  ;(svg.parentElement as HTMLElement).style.backgroundPosition = `${bgX}px ${bgY}px`
   updateZoomLabel()
   refreshLifelineAddButtons()
   // Dismiss open popovers — they're screen-pinned and would drift from their element
