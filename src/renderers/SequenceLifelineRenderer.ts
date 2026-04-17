@@ -56,9 +56,12 @@ export class SequenceLifelineRenderer {
     container: SVGElement,
     /** Called on mousedown on an insert-slot circle; slotIdx = position to insert at */
     public onDragFromSlot: (ll: SequenceLifeline, slot: InsertSlot) => void,
-    private onEditMessage: (ll: SequenceLifeline, msgIdx: number) => void,
+    /** Called on dblclick on a locally-rendered message row; labelEl is the text element to edit in-place */
+    private onEditMessage: (ll: SequenceLifeline, msgIdx: number, labelEl: SVGTextElement) => void,
     /** Called when user drags from an active-bar port */
     public onDragFromPort: (ll: SequenceLifeline, fromY: number) => void,
+    /** Called on single click on a message row (e.g. self-call) to open the message popover */
+    private onClickMessage?: (ll: SequenceLifeline, msgIdx: number, e: MouseEvent) => void,
   ) {
     this.el = svgEl('g')
     this.el.classList.add('seq-lifeline')
@@ -250,6 +253,8 @@ export class SequenceLifelineRenderer {
     g.classList.add('seq-msg-row')
     g.dataset.msgIdx = String(idx)
 
+    let labelEl: SVGTextElement | null = null
+
     if (msg.kind === 'self') {
       // Self-call: loopback arrow rendered entirely on this lifeline
       const lx = spineX + 28
@@ -262,14 +267,13 @@ export class SequenceLifelineRenderer {
       arrow.setAttribute('d', leftOpenPath(spineX, midY + 8))
       arrow.setAttribute('fill', 'none')
 
-      // Label for self-call
-      const label = svgEl('text')
-      label.classList.add('seq-msg-label')
-      label.dataset.msgIdx = String(idx)
-      label.textContent = msg.label
-      label.setAttribute('x', String(spineX + lx - spineX + 4))
-      label.setAttribute('y', String(midY - 6))
-      g.append(path, arrow, label)
+      labelEl = svgEl('text')
+      labelEl.classList.add('seq-msg-label')
+      labelEl.dataset.msgIdx = String(idx)
+      labelEl.textContent = msg.label
+      labelEl.setAttribute('x', String(lx + 4))
+      labelEl.setAttribute('y', String(midY - 6))
+      g.append(path, arrow, labelEl)
 
     } else if (msg.kind === 'return' && !msg.targetLifelineId) {
       // Unconnected return: stub pointing left with slot indicator
@@ -291,13 +295,13 @@ export class SequenceLifelineRenderer {
       slot.setAttribute('x2', String(BAR_HALF))
       slot.setAttribute('y2', String(midY + 6))
 
-      const label = svgEl('text')
-      label.classList.add('seq-msg-label')
-      label.dataset.msgIdx = String(idx)
-      label.textContent = msg.label
-      label.setAttribute('x', String(spineX + 4))
-      label.setAttribute('y', String(rowY + MSG_ROW_H * 0.38))
-      g.append(stub, head, slot, label)
+      labelEl = svgEl('text')
+      labelEl.classList.add('seq-msg-label')
+      labelEl.dataset.msgIdx = String(idx)
+      labelEl.textContent = msg.label
+      labelEl.setAttribute('x', String(spineX + 4))
+      labelEl.setAttribute('y', String(rowY + MSG_ROW_H * 0.38))
+      g.append(stub, head, slot, labelEl)
 
     } else if (msg.kind === 'return' && msg.targetLifelineId) {
       // Connected return: arrow drawn in seqConnLayer — render nothing here
@@ -336,27 +340,47 @@ export class SequenceLifelineRenderer {
       slot.setAttribute('x2', String(arrowX))
       slot.setAttribute('y2', String(midY + 6))
 
-      const label = svgEl('text')
-      label.classList.add('seq-msg-label')
-      label.dataset.msgIdx = String(idx)
-      label.textContent = msg.label
-      label.setAttribute('x', String(spineX + 4))
-      label.setAttribute('y', String(rowY + MSG_ROW_H * 0.38))
-      g.append(slot, label)
-
+      labelEl = svgEl('text')
+      labelEl.classList.add('seq-msg-label')
+      labelEl.dataset.msgIdx = String(idx)
+      labelEl.textContent = msg.label
+      labelEl.setAttribute('x', String(spineX + 4))
+      labelEl.setAttribute('y', String(rowY + MSG_ROW_H * 0.38))
+      g.append(slot, labelEl)
     }
-    // Connected sync/async/create: arrow drawn entirely in seqConnLayer — nothing rendered here
+    // Connected sync/async/create: arrow and interaction handled entirely in seqConnLayer
 
-    g.addEventListener('dblclick', e => {
-      e.stopPropagation()
-      this.onEditMessage(this.ll, idx)
-    })
+    // Uniform click/dblclick for locally-rendered rows (self + unconnected stubs).
+    // Mirrors the inter-lifeline baseline: click → popover, dblclick → inline rename.
+    if (labelEl) {
+      g.style.cursor = 'pointer'
+      let clickTimer: ReturnType<typeof setTimeout> | null = null
+
+      g.addEventListener('click', e => {
+        e.stopPropagation()
+        if (clickTimer !== null) { clearTimeout(clickTimer); clickTimer = null; return }
+        clickTimer = setTimeout(() => {
+          clickTimer = null
+          this.onClickMessage?.(this.ll, idx, e)
+        }, 220)
+      })
+
+      g.addEventListener('dblclick', e => {
+        e.stopPropagation()
+        if (clickTimer !== null) { clearTimeout(clickTimer); clickTimer = null }
+        // Dismiss any open popover then edit the label in-place (same as seqConnLayer baseline)
+        document.getElementById('msg-popover')?.remove()
+        const lbl = g.querySelector<SVGTextElement>('.seq-msg-label')
+        if (!lbl) return
+        this.onEditMessage(this.ll, idx, lbl)
+      })
+    }
 
     this.msgGroup.appendChild(g)
   }
 
   getMsgTextEl(idx: number): SVGTextElement | null {
-    return this.msgGroup.querySelector<SVGTextElement>(`[data-msgIdx="${idx}"].seq-msg-label`)
+    return this.msgGroup.querySelector<SVGTextElement>(`[data-msgidx="${idx}"].seq-msg-label`)
   }
 
   getSpineX(): number { return this.computedW * SPINE_X_FRAC }

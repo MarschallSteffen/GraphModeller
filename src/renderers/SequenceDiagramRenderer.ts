@@ -18,8 +18,9 @@ export class SequenceDiagramRenderer {
     store: DiagramStore,
     container: SVGElement,
     public onDragFromSlot: (sdId: string, ll: SequenceLifeline, slot: InsertSlot) => void,
-    public onEditMessage: (sdId: string, ll: SequenceLifeline, msgIdx: number) => void,
+    public onEditMessage: (sdId: string, ll: SequenceLifeline, msgIdx: number, labelEl: SVGTextElement) => void,
     public onDragFromPort: (sdId: string, ll: SequenceLifeline, fromY: number) => void,
+    public onClickMessage?: (sdId: string, ll: SequenceLifeline, msgIdx: number, e: MouseEvent) => void,
   ) {
     this.el = svgEl('g')
     this.el.classList.add('seq-diagram')
@@ -69,8 +70,9 @@ export class SequenceDiagramRenderer {
           ll,
           this.inner,
           (life, slot) => this.onDragFromSlot(sd.id, life, slot),
-          (life, msgIdx) => this.onEditMessage(sd.id, life, msgIdx),
+          (life, msgIdx, lbl) => this.onEditMessage(sd.id, life, msgIdx, lbl),
           (life, fromY) => this.onDragFromPort(sd.id, life, fromY),
+          (life, msgIdx, e) => this.onClickMessage?.(sd.id, life, msgIdx, e),
         )
         this.llRenderers.set(ll.id, r)
       } else if (updateExisting) {

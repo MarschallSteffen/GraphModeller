@@ -755,15 +755,11 @@ function addSeqDiagramRenderer(sd: SequenceDiagram) {
     store,
     seqLayer,
     (sdId, lifeline, slot) => startSeqSlotDrag(sdId, lifeline.id, slot),
-    (sdId, lifeline, msgIdx) => {
-      document.getElementById('msg-popover')?.remove()
+    (sdId, lifeline, msgIdx, labelEl) => {
       const currentSd = store.state.sequenceDiagrams.find(s => s.id === sdId)
       const currentLL = currentSd?.lifelines.find(l => l.id === lifeline.id)
       if (!currentSd || !currentLL) return
-      const llR = r.getLifelineRenderer(lifeline.id)
-      const msgEl = llR?.getMsgTextEl(msgIdx)
-      if (!msgEl) return
-      inlineEditor.edit(msgEl, currentLL.messages[msgIdx].label, (val) => {
+      inlineEditor.edit(labelEl, currentLL.messages[msgIdx].label, (val) => {
         const latestSd = store.state.sequenceDiagrams.find(s => s.id === sdId)
         if (!latestSd) return
         const latestLL = latestSd.lifelines.find(l => l.id === lifeline.id)
@@ -776,6 +772,38 @@ function addSeqDiagramRenderer(sd: SequenceDiagram) {
       })
     },
     (sdId, lifeline, fromLocalY) => startSeqPortDrag(sdId, lifeline.id, fromLocalY),
+    (sdId, lifeline, msgIdx, e) => {
+      // Self-call click: open message popover (same as seqConnLayer arrow click)
+      const latestSd = store.state.sequenceDiagrams.find(s => s.id === sdId)
+      const latestLL = latestSd?.lifelines.find(l => l.id === lifeline.id)
+      if (!latestSd || !latestLL) return
+      const latestMsg = latestLL.messages[msgIdx]
+      if (!latestMsg) return
+      const otherLifelines = latestSd.lifelines
+        .filter(l => l.id !== lifeline.id)
+        .map(l => ({ id: l.id, name: l.name }))
+      setSelectedSeqArrow({ srcId: lifeline.id, msgIdx })
+      showMsgPopover(
+        e.clientX, e.clientY,
+        latestMsg,
+        otherLifelines,
+        (patch) => {
+          const sd2 = store.state.sequenceDiagrams.find(s => s.id === sdId)
+          const ll2 = sd2?.lifelines.find(l => l.id === lifeline.id)
+          if (!sd2 || !ll2) return
+          const msgs2 = [...ll2.messages]
+          msgs2[msgIdx] = { ...msgs2[msgIdx], ...patch }
+          store.updateSequenceDiagram(sdId, {
+            lifelines: sd2.lifelines.map(l => l.id === lifeline.id ? { ...l, messages: msgs2 } : l)
+          })
+        },
+        () => {
+          removeSeqMessage(sdId, lifeline.id, msgIdx)
+          setSelectedSeqArrow(null)
+        },
+        () => setSelectedSeqArrow(null),
+      )
+    },
   )
   seqDiagramRenderers.set(sd.id, r)
   wireSeqDiagramInteraction(r, sd)
@@ -1603,6 +1631,37 @@ function startSeqSlotDrag(sdId: string, srcLLId: string, slot: InsertSlot) {
     store.updateSequenceDiagram(sdId, {
       lifelines: bumpedLifelines.map(l => l.id === srcLLId ? { ...l, messages: msgs } : l)
     })
+
+    // Immediately open the message popover for the new message
+    const freshSd = store.state.sequenceDiagrams.find(s => s.id === sdId)
+    const freshLL = freshSd?.lifelines.find(l => l.id === srcLLId)
+    if (!freshSd || !freshLL) return
+    const newMsgIdx = freshLL.messages.findIndex(m => m.id === msg.id)
+    if (newMsgIdx === -1) return
+    const otherLifelines = freshSd.lifelines
+      .filter(l => l.id !== srcLLId)
+      .map(l => ({ id: l.id, name: l.name }))
+    setSelectedSeqArrow({ srcId: srcLLId, msgIdx: newMsgIdx })
+    showMsgPopover(
+      _ev.clientX, _ev.clientY,
+      freshLL.messages[newMsgIdx],
+      otherLifelines,
+      (patch) => {
+        const sd2 = store.state.sequenceDiagrams.find(s => s.id === sdId)
+        const ll2 = sd2?.lifelines.find(l => l.id === srcLLId)
+        if (!sd2 || !ll2) return
+        const msgs2 = [...ll2.messages]
+        msgs2[newMsgIdx] = { ...msgs2[newMsgIdx], ...patch }
+        store.updateSequenceDiagram(sdId, {
+          lifelines: sd2.lifelines.map(l => l.id === srcLLId ? { ...l, messages: msgs2 } : l)
+        })
+      },
+      () => {
+        removeSeqMessage(sdId, srcLLId, newMsgIdx)
+        setSelectedSeqArrow(null)
+      },
+      () => setSelectedSeqArrow(null),
+    )
   }
 
   window.addEventListener('mousemove', onMove)
