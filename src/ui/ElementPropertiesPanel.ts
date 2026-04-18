@@ -5,6 +5,8 @@
  * Positioned and dismissed consistently with Connection/Message popovers.
  */
 
+import { createPopover } from './popover.ts'
+
 const ACCENT_COLORS = [
   '--ctp-red',
   '--ctp-peach',
@@ -16,9 +18,7 @@ const ACCENT_COLORS = [
   '--ctp-mauve',
 ] as const
 
-let currentPanel: HTMLElement | null = null
-let currentOutsideHandler: ((e: MouseEvent) => void) | null = null
-let pendingTimerId: ReturnType<typeof setTimeout> | null = null
+let currentDismiss: (() => void) | null = null
 
 export function showElementPropertiesPanel(
   screenX: number,
@@ -31,14 +31,6 @@ export function showElementPropertiesPanel(
   onAccentColor?: (color: string | undefined) => void,
 ) {
   hideElementPropertiesPanel()
-
-  const layer = document.getElementById('popover-layer')!
-
-  const panel = document.createElement('div')
-  panel.id = 'elem-props-panel'
-  panel.classList.add('popover', 'elem-props-panel')
-  panel.style.left = `${screenX}px`
-  panel.style.top  = `${screenY}px`
 
   const multiRow = multiInstance !== undefined ? `
     <div class="popover-row">
@@ -58,6 +50,9 @@ export function showElementPropertiesPanel(
     </div>
   ` : ''
 
+  const { el: panel, dismiss } = createPopover('elem-props-panel', ['elem-props-panel'], screenX, screenY)
+  currentDismiss = dismiss
+
   panel.innerHTML = `
     ${multiRow}
     ${flowRow}
@@ -66,9 +61,6 @@ export function showElementPropertiesPanel(
       <div class="accent-swatches" id="ep-accent-swatches"></div>
     </div>
   `
-
-  layer.appendChild(panel)
-  currentPanel = panel
 
   if (multiInstance !== undefined) {
     panel.querySelector<HTMLInputElement>('#ep-multi')!.addEventListener('change', e => {
@@ -120,27 +112,9 @@ export function showElementPropertiesPanel(
     })
     swatchContainer.appendChild(clearBtn)
   }
-
-  // Outside-click dismissal (same pattern as ConnectionPopover)
-  const onOutside = (e: MouseEvent) => {
-    if (!panel.contains(e.target as Node)) hideElementPropertiesPanel()
-  }
-  pendingTimerId = setTimeout(() => {
-    pendingTimerId = null
-    currentOutsideHandler = onOutside
-    document.addEventListener('mousedown', onOutside)
-  }, 150)
 }
 
 export function hideElementPropertiesPanel() {
-  if (pendingTimerId !== null) {
-    clearTimeout(pendingTimerId)
-    pendingTimerId = null
-  }
-  if (currentOutsideHandler) {
-    document.removeEventListener('mousedown', currentOutsideHandler)
-    currentOutsideHandler = null
-  }
-  currentPanel?.remove()
-  currentPanel = null
+  currentDismiss?.()
+  currentDismiss = null
 }

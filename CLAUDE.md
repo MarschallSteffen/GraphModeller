@@ -93,11 +93,21 @@ src/
     Connection.ts    # source/target endpoints, type, multiplicities
   renderers/         # SVG renderers — one per entity type + routing.ts + svgUtils.ts
   interaction/       # Drag, resize, connect, select, snap, inline-edit controllers
-  store/             # DiagramStore — single state + mutation API + event bus
-  serialization/     # persistence.ts: JSON save/load + PNG export
+  store/
+    DiagramStore.ts  # Single state + mutation API + event bus; CRUD delegated to CollectionManagers
+    CollectionManager.ts  # Generic CollectionManager<T> — add/update/remove/findById/getAll
+  serialization/
+    persistence.ts   # JSON save/load, file handle management, PNG export orchestration
+    png-chunks.ts    # Pure utilities: crc32, injectPngiTxt, extractPngiTxt (no DOM/store)
+    svg-export.ts    # SVG export preprocessing: getExportBounds, prepareSvgForExport, collectStyles
+    ThumbnailCache.ts  # In-memory blob-URL thumbnail cache keyed by diagram ID
+    PngAutosave.ts   # Debounced PNG autosave scheduler; accepts doWrite callback (avoids circular deps)
   config/            # Element type descriptors (ports, connectionRules, defaultSize)
   themes/            # Catppuccin theme tokens
-  ui/                # Toolbar, ConnectionPopover, MessagePopover, ElementPropertiesPanel, FileMenu
+  ui/
+    popover.ts       # createPopover() — shared dismiss-on-outside-click + Escape helper used by all popovers
+    SequenceDiagramController.ts  # All seq-diagram wiring + rendering logic extracted from main.ts
+    # also: Toolbar, ConnectionPopover, MessagePopover, ElementPropertiesPanel, BulkPropertiesPanel, FileMenu
   main.ts            # Entry point — ELEMENTS dispatch table, wiring, rendering
 ```
 
@@ -133,11 +143,13 @@ Each renderer owns an SVG `<g>`. All implement: `update()`, `setSelected()`, `de
 
 ---
 
-### Store (`src/store/DiagramStore.ts`)
+### Store (`src/store/`)
 
-Single store wrapping a `Diagram`. Emits typed events (`'<kind>:add|update|remove'`).
+`DiagramStore.ts` — single store wrapping a `Diagram`. Emits typed events (`'<kind>:add|update|remove'`). CRUD for each element type is delegated to a `CollectionManager<T>` instance; DiagramStore exposes thin delegator methods on top.
 
-Key methods:
+`CollectionManager.ts` — generic `CollectionManager<T extends { id: string }>` with `add`, `update`, `remove`, `findById`, `getAll`. Handles undo snapshot + event emission. Instantiate one per element type collection.
+
+Key DiagramStore methods:
 - `findElementById(kind, id)` — returns `{position, size}` for a known kind
 - `findAnyElement(id)` — searches all collections by id (kind-agnostic)
 - `updateElementPosition(kind, id, patch)` — routes position/size patch
@@ -154,6 +166,8 @@ Key methods:
 ---
 
 ### Popovers (`src/ui/`)
+
+All popovers use `createPopover()` from `src/ui/popover.ts` — a shared helper that creates the element, appends it to `#popover-layer`, and wires dismiss-on-outside-click + Escape key. Returns `{ el, dismiss }`. Pass `extraKeys` for Delete/Backspace (MessagePopover).
 
 **ConnectionPopover** — shown on connection create/click. Sections: "Type" (icon buttons filtered by element config), "Multiplicity" (source/target dropdowns), "Routing" (auto/min/max elbow). Flip button swaps source↔target. Dismisses on Escape or outside click.
 
@@ -188,6 +202,8 @@ Collapsible groups with localStorage-persisted state (`toolbar-group:<label>`):
 ---
 
 ### Sequence Diagrams
+
+All seq-diagram wiring and rendering logic lives in `src/ui/SequenceDiagramController.ts`. `main.ts` holds a single `seqCtrl` instance and delegates `addSeqDiagramRenderer`, `refreshSeqDiagram` calls to it.
 
 - Each `SequenceDiagram` is a self-contained container with `lifelines: SequenceLifeline[]`
 - Lifeline `position.x` = horizontal offset within container; `position.y` always 0

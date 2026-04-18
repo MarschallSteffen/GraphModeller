@@ -18,7 +18,23 @@ import type { Connection, ConnectionType, ElbowMode, Multiplicity } from '../ent
 import { parseAttribute, serializeAttribute } from '../entities/Attribute.ts'
 import { parseMethod, serializeMethod } from '../entities/Method.ts'
 import { getElementConfig } from '../config/registry.ts'
-import { LATTE, PRINT } from '../themes/catppuccin.ts'
+import { injectPngiTxt, extractPngiTxt } from './png-chunks.ts'
+import { getExportBounds, prepareSvgForExport, collectStyles } from './svg-export.ts'
+export { getExportBounds, prepareSvgForExport, collectStyles } from './svg-export.ts'
+import {
+  setActiveThumbnailId as _setActiveThumbnailId,
+  getActiveThumbnailId,
+  cacheThumbnail,
+} from './ThumbnailCache.ts'
+import {
+  schedulePngWrite as _schedulePngWrite,
+  resetPngAutosave,
+} from './PngAutosave.ts'
+
+// Re-export thumbnail cache API (imported by main.ts via persistence.ts)
+export { setActiveThumbnailId, getThumbnailDataUrl } from './ThumbnailCache.ts'
+// Re-export PNG autosave callbacks (imported by main.ts via persistence.ts)
+export { onPngSaveError, onPngSaveRecovered } from './PngAutosave.ts'
 
 // ─── JSON persistence (localStorage only) ────────────────────────────────────
 
@@ -31,119 +47,34 @@ export function getActiveFileName(): string | null {
   return activeFileHandle?.name ?? null
 }
 
-// ─── In-memory PNG thumbnail cache ───────────────────────────────────────────
-// Keyed by recent-file ID (== diagram.id). Updated every time a PNG is built.
-// Max ~10 entries (matches MAX_RECENT in Dashboard.ts). No size cap needed since
-// each entry is one dashboard-thumbnail JPEG/PNG — a few hundred KB at most.
-
-const _thumbCache = new Map<string, string>()
-let   _activeThumbnailId: string | null = null
-
-/** Register the recent-file ID that maps to the currently open file handle. */
-export function setActiveThumbnailId(id: string | null) {
-  _activeThumbnailId = id
-}
-
-/** Return the cached data-URL thumbnail for the given recent-file ID, or null. */
-export function getThumbnailDataUrl(id: string): string | null {
-  return _thumbCache.get(id) ?? null
-}
-
-function _cacheThumbnail(id: string | null | undefined, bytes: Uint8Array) {
-  if (!id) return
-  const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'image/png' })
-  const old = _thumbCache.get(id)
-  if (old) URL.revokeObjectURL(old)
-  _thumbCache.set(id, URL.createObjectURL(blob))
-}
-
 /** Save to localStorage (and autosave to active .arch.png handle if open). */
 export function saveDiagram(diagram: Diagram) {
   localStorage.setItem(LS_JSON, JSON.stringify(serializeDiagramV2(diagram), null, 2))
-  if (activeFileHandle) schedulePngWrite(diagram)
+  if (activeFileHandle) _schedulePngWrite(diagram, _doPngWrite)
 }
 
-// ─── PNG autosave — debounced, single writer ──────────────────────────────────
-// Rapid mutations coalesce into one write. A write already in flight is never
-// interrupted — the latest diagram snapshot is queued and flushed afterwards.
-
-let _pngDebounceTimer: ReturnType<typeof setTimeout> | null = null
-let _pngWriting = false
-let _pngPending: Diagram | null = null
-let _pngFailCount = 0          // consecutive write failures (reset on success)
-const PNG_DEBOUNCE_MS  = 1500
-const PNG_RETRY_DELAY  = 3000  // wait 3 s before first retry after a failure
-const PNG_MAX_FAILURES = 2     // surface error to UI after this many consecutive fails
-
-// Callbacks wired from main.ts so persistence.ts stays UI-free.
-let _onSaveError:     ((msg: string) => void) | null = null
-let _onSaveRecovered: (() => void)            | null = null
-
-export function onPngSaveError    (fn: (msg: string) => void) { _onSaveError     = fn }
-export function onPngSaveRecovered(fn: () => void)            { _onSaveRecovered = fn }
-
-function schedulePngWrite(diagram: Diagram) {
-  _pngPending = diagram  // always keep the freshest snapshot
-  if (_pngWriting) return // a write is in flight — it will flush _pngPending when done
-  if (_pngDebounceTimer !== null) clearTimeout(_pngDebounceTimer)
-  _pngDebounceTimer = setTimeout(flushPngWrite, PNG_DEBOUNCE_MS)
-}
-
-async function flushPngWrite() {
-  _pngDebounceTimer = null
-  if (!activeFileHandle || !_pngPending) return
-  _pngWriting = true
-  const snapshot = _pngPending
-  _pngPending = null
-  let writeError: unknown = null
-  try {
-    const bytes = await buildArchPngBytes(snapshot)
-    // Cache thumbnail regardless of whether the file write succeeds.
-    _cacheThumbnail(_activeThumbnailId, bytes)
-    if (activeFileHandle) {
-      const w = await activeFileHandle.createWritable()
-      await w.write(bytes.buffer as ArrayBuffer)
-      await w.close()
-    }
-    // Success — reset failure counter and clear any error banner.
-    if (_pngFailCount > 0) {
-      _pngFailCount = 0
-      _onSaveRecovered?.()
-    }
-  } catch (err) {
-    writeError = err
-    _pngFailCount++
-    if (_pngFailCount >= PNG_MAX_FAILURES) {
-      // Surface the problem to the user.
-      const msg = err instanceof Error ? err.message : String(err)
-      _onSaveError?.(msg)
-    }
-    // Queue a retry — put the failed snapshot back if nothing newer arrived.
-    if (!_pngPending) _pngPending = snapshot
-  } finally {
-    _pngWriting = false
-    if (_pngPending && activeFileHandle) {
-      // Use the normal debounce for new mutations; use the retry delay for
-      // repeated failures so we don't hammer the FS on a persistent error.
-      const delay = writeError ? PNG_RETRY_DELAY : PNG_DEBOUNCE_MS
-      _pngDebounceTimer = setTimeout(flushPngWrite, delay)
-    }
+async function _doPngWrite(snapshot: Diagram): Promise<void> {
+  const bytes = await buildArchPngBytes(snapshot)
+  // Cache thumbnail regardless of whether the file write succeeds.
+  cacheThumbnail(getActiveThumbnailId(), bytes)
+  if (activeFileHandle) {
+    const w = await activeFileHandle.createWritable()
+    await w.write(bytes.buffer as ArrayBuffer)
+    await w.close()
   }
 }
 
 /** Close the active file handle (e.g. on New diagram). */
 export function closeActiveFile() {
   activeFileHandle = null
-  _activeThumbnailId = null
-  _pngFailCount = 0
-  if (_pngDebounceTimer !== null) { clearTimeout(_pngDebounceTimer); _pngDebounceTimer = null }
-  _pngPending = null
+  _setActiveThumbnailId(null)
+  resetPngAutosave()
 }
 
 /** Set a file handle as the active autosave target (e.g. resumed from dashboard). */
 export function setActiveFileHandle(handle: FileSystemFileHandle | null) {
   activeFileHandle = handle
-  _pngFailCount = 0  // fresh handle — clear any prior error state
+  resetPngAutosave()
 }
 
 /**
@@ -163,14 +94,14 @@ export async function openAndSaveToFile(
   const bytes = await buildArchPngBytes(diagram)
   if (!('showSaveFilePicker' in window)) {
     triggerDownload(new Blob([bytes.buffer as ArrayBuffer], { type: 'image/png' }), suggestedName)
-    _cacheThumbnail(diagram.id, bytes)
+    cacheThumbnail(diagram.id, bytes)
     return true
   }
   if (activeFileHandle && !forceNew) {
     const w = await activeFileHandle.createWritable()
     await w.write(bytes.buffer as ArrayBuffer)
     await w.close()
-    _cacheThumbnail(diagram.id, bytes)
+    cacheThumbnail(diagram.id, bytes)
     return true
   }
   try {
@@ -181,11 +112,11 @@ export async function openAndSaveToFile(
       types: [{ description: 'Archetype diagram', accept: { 'image/png': ['.png'] } }],
     })
     activeFileHandle = handle
-    _pngFailCount = 0
+    resetPngAutosave()
     const w = await handle.createWritable()
     await w.write(bytes.buffer as ArrayBuffer)
     await w.close()
-    _cacheThumbnail(diagram.id, bytes)
+    cacheThumbnail(diagram.id, bytes)
     return handle  // caller should persist this handle
   } catch (err: unknown) {
     if (err instanceof DOMException && err.name === 'AbortError') return null
@@ -211,191 +142,6 @@ export async function readDiagramJsonFromHandle(
     return extractPngiTxt(new Uint8Array(buf), ARCH_KEYWORD)
   }
   return file.text()
-}
-
-/**
- * Inject an iTXt chunk carrying the diagram JSON into raw PNG bytes.
- * iTXt structure (after chunk length + type):
- *   keyword\0  compression-flag(0)  compression-method(0)  language-tag\0  translated-keyword\0  text
- */
-function injectPngiTxt(pngBytes: Uint8Array, keyword: string, text: string): Uint8Array {
-  const enc = new TextEncoder()
-  const kw  = enc.encode(keyword)
-  const txt = enc.encode(text)
-  // chunk data: keyword + \0 + 0 + 0 + \0 + \0 + text
-  const data = new Uint8Array(kw.length + 3 + 1 + 1 + txt.length)
-  data.set(kw, 0)
-  // \0 compression-flag=0 compression-method=0 \0(lang) \0(translated-kw)
-  data[kw.length]     = 0
-  data[kw.length + 1] = 0
-  data[kw.length + 2] = 0
-  data[kw.length + 3] = 0
-  data[kw.length + 4] = 0
-  data.set(txt, kw.length + 5)
-
-  const type = enc.encode('iTXt')
-  const len  = data.length
-  const chunk = new Uint8Array(12 + len)
-  const view  = new DataView(chunk.buffer)
-  view.setUint32(0, len)
-  chunk.set(type, 4)
-  chunk.set(data, 8)
-  view.setUint32(8 + len, crc32(chunk.subarray(4, 8 + len)))
-
-  // Insert before IEND chunk (last 12 bytes of a valid PNG)
-  const out = new Uint8Array(pngBytes.length + chunk.length)
-  out.set(pngBytes.subarray(0, pngBytes.length - 12))
-  out.set(chunk, pngBytes.length - 12)
-  out.set(pngBytes.subarray(pngBytes.length - 12), pngBytes.length - 12 + chunk.length)
-  return out
-}
-
-/** Extract the text value of the first iTXt chunk matching `keyword`, or null. */
-function extractPngiTxt(pngBytes: Uint8Array, keyword: string): string | null {
-  const dec = new TextDecoder()
-  const enc = new TextEncoder()
-  const kw  = enc.encode(keyword)
-  let i = 8 // skip PNG signature
-  while (i + 12 <= pngBytes.length) {
-    const view  = new DataView(pngBytes.buffer, pngBytes.byteOffset)
-    const len   = view.getUint32(i)
-    const type  = dec.decode(pngBytes.subarray(i + 4, i + 8))
-    if (type === 'IEND') break
-    if (type === 'iTXt') {
-      const data = pngBytes.subarray(i + 8, i + 8 + len)
-      // check keyword match
-      let match = true
-      for (let k = 0; k < kw.length; k++) {
-        if (data[k] !== kw[k]) { match = false; break }
-      }
-      if (match && data[kw.length] === 0) {
-        // skip: null + compression-flag + compression-method + lang-null + translated-null
-        const textStart = kw.length + 5
-        return dec.decode(data.subarray(textStart))
-      }
-    }
-    i += 12 + len
-  }
-  return null
-}
-
-/** CRC-32 for PNG chunk integrity. */
-function crc32(data: Uint8Array): number {
-  let crc = 0xFFFFFFFF
-  for (const byte of data) {
-    crc ^= byte
-    for (let k = 0; k < 8; k++) crc = (crc & 1) ? (crc >>> 1) ^ 0xEDB88320 : crc >>> 1
-  }
-  return (crc ^ 0xFFFFFFFF) >>> 0
-}
-
-/** Compute export dimensions from the live view-group bounding box. Returns null on empty diagram. */
-function getExportBounds(PADDING = 48): { svgEl: SVGSVGElement; viewGroup: SVGGElement; contentW: number; contentH: number; offsetX: number; offsetY: number } | null {
-  const svgEl     = document.querySelector<SVGSVGElement>('#canvas')
-  const viewGroup = document.querySelector<SVGGElement>('#view-group')
-  if (!svgEl || !viewGroup) return null
-  const savedTransform = viewGroup.getAttribute('transform') ?? ''
-  viewGroup.setAttribute('transform', '')
-  const bbox = viewGroup.getBBox()
-  viewGroup.setAttribute('transform', savedTransform)
-  if (bbox.width === 0 || bbox.height === 0) return null
-  return {
-    svgEl,
-    viewGroup,
-    contentW: Math.ceil(bbox.width  + PADDING * 2),
-    contentH: Math.ceil(bbox.height + PADDING * 2),
-    offsetX:  bbox.x - PADDING,
-    offsetY:  bbox.y - PADDING,
-  }
-}
-
-/** Clone and prepare the live SVG for export — inlines styles, converts foreignObjects, adds watermark. */
-function prepareSvgForExport(
-  svgEl: SVGSVGElement,
-  contentW: number,
-  contentH: number,
-  offsetX: number,
-  offsetY: number,
-): SVGSVGElement {
-  const clonedSvg = svgEl.cloneNode(true) as SVGSVGElement
-  clonedSvg.setAttribute('width',   String(contentW))
-  clonedSvg.setAttribute('height',  String(contentH))
-  clonedSvg.setAttribute('viewBox', `${offsetX} ${offsetY} ${contentW} ${contentH}`)
-  clonedSvg.querySelectorAll('.rubber-band, .snap-guides').forEach(el => el.remove())
-
-  const NS = 'http://www.w3.org/2000/svg'
-  const FONT_SIZE = 12
-  const FONT_FAMILY = 'ui-sans-serif, system-ui, sans-serif'
-  const LINE_HEIGHT = FONT_SIZE * 1.4
-  const PAD_X = 8
-  const PAD_Y = 6
-
-  // Canvas 2D context used only for text measurement (not rendered)
-  const measureCtx = document.createElement('canvas').getContext('2d')!
-  measureCtx.font = `${FONT_SIZE}px ${FONT_FAMILY}`
-  function wrapWords(text: string, maxWidth: number): string[] {
-    const words = text.split(' ')
-    const result: string[] = []
-    let line = ''
-    for (const word of words) {
-      const candidate = line ? `${line} ${word}` : word
-      if (measureCtx.measureText(candidate).width > maxWidth && line) { result.push(line); line = word }
-      else line = candidate
-    }
-    if (line) result.push(line)
-    return result
-  }
-
-  clonedSvg.querySelectorAll('foreignObject').forEach(fo => {
-    const x = parseFloat(fo.getAttribute('x') ?? '0')
-    const y = parseFloat(fo.getAttribute('y') ?? '0')
-    const foWidth = parseFloat(fo.getAttribute('width') ?? '200')
-    const rawText = (fo.textContent ?? '').trim()
-    if (!rawText) { fo.remove(); return }
-    const maxTextWidth = foWidth - PAD_X * 2
-
-    const paragraphs = rawText.split('\n')
-    const allLines: string[] = []
-    for (const para of paragraphs) {
-      allLines.push(...wrapWords(para || ' ', maxTextWidth))
-    }
-
-    const g = document.createElementNS(NS, 'g')
-    const textEl = document.createElementNS(NS, 'text')
-    textEl.setAttribute('font-size', String(FONT_SIZE))
-    textEl.setAttribute('font-family', FONT_FAMILY)
-    textEl.setAttribute('fill', 'currentColor')
-    allLines.forEach((line, i) => {
-      const tspan = document.createElementNS(NS, 'tspan')
-      tspan.setAttribute('x', String(x + PAD_X))
-      tspan.setAttribute('y', String(y + PAD_Y + FONT_SIZE + i * LINE_HEIGHT))
-      tspan.textContent = line
-      textEl.appendChild(tspan)
-    })
-    g.appendChild(textEl)
-    fo.replaceWith(g)
-  })
-
-  const clonedViewGroup = clonedSvg.querySelector('#view-group') as SVGGElement | null
-  if (clonedViewGroup) clonedViewGroup.removeAttribute('transform')
-
-  // Attribution watermark — bottom-right corner, in viewBox coordinate space
-  const attrText = document.createElementNS(NS, 'text')
-  attrText.setAttribute('x', String(offsetX + contentW - 8))
-  attrText.setAttribute('y', String(offsetY + contentH - 8))
-  attrText.setAttribute('text-anchor', 'end')
-  attrText.setAttribute('font-size', '10')
-  attrText.setAttribute('font-family', FONT_FAMILY)
-  attrText.setAttribute('fill', '#4c4f69')
-  attrText.setAttribute('opacity', '0.45')
-  attrText.textContent = 'marschallsteffen.github.io/Archetype'
-  clonedSvg.appendChild(attrText)
-
-  const styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style')
-  styleEl.textContent = collectStyles()
-  clonedSvg.prepend(styleEl)
-
-  return clonedSvg
 }
 
 /**
@@ -532,29 +278,6 @@ export async function buildThumbnailDataUrl(maxW = 320, maxH = 200): Promise<str
   })
   URL.revokeObjectURL(svgUrl)
   return canvas.toDataURL('image/png')
-}
-
-/** Collect all CSS rules and inject theme variables for consistent PNG output.
- *  Uses the Print palette when the Print theme is active, otherwise Latte. */
-function collectStyles(): string {
-  const parts: string[] = []
-
-  const activeFlavour = document.documentElement.getAttribute('data-theme')
-  const exportPalette = activeFlavour === 'print' ? PRINT : LATTE
-  const themeVars = Object.entries(exportPalette)
-    .map(([key, value]) => `  --ctp-${key}: ${value};`)
-    .join('\n')
-  parts.push(`:root {\n${themeVars}\n}`)
-
-  for (const sheet of document.styleSheets) {
-    try {
-      for (const rule of sheet.cssRules) {
-        parts.push(rule.cssText)
-      }
-    } catch { /* Cross-origin stylesheets — skip */ }
-  }
-
-  return parts.join('\n')
 }
 
 function triggerDownload(blob: Blob, filename: string) {

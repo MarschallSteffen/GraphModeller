@@ -1,8 +1,12 @@
 import type { SequenceMessage } from '../entities/SequenceLifeline.ts'
 import { svgIcon as S } from './svgIcon.ts'
+import { createPopover } from './popover.ts'
+
+let currentDismiss: (() => void) | null = null
 
 export function hideMsgPopover() {
-  document.getElementById('msg-popover')?.remove()
+  currentDismiss?.()
+  currentDismiss = null
 }
 
 export function showMsgPopover(
@@ -14,9 +18,7 @@ export function showMsgPopover(
   onDelete: () => void,
   onDismiss: () => void,
 ) {
-  document.getElementById('msg-popover')?.remove()
-
-  const layer = document.getElementById('popover-layer')!
+  hideMsgPopover()
 
   const KINDS: Array<{ kind: SequenceMessage['kind']; label: string; icon: string }> = [
     { kind: 'sync',   label: 'Synchronous',  icon: S('<line x1="1" y1="8" x2="13" y2="8"/><polygon points="10,5 13,8 10,11" fill="currentColor"/>') },
@@ -31,14 +33,28 @@ export function showMsgPopover(
             data-kind="${k.kind}" title="${k.label}" aria-label="${k.label}">${k.icon}</button>
   `).join('')
 
-  const popover = document.createElement('div')
-  popover.id = 'msg-popover'
-  popover.classList.add('popover', 'conn-popover')
-  popover.style.left = `${screenX}px`
-  popover.style.top  = `${screenY}px`
-  popover.innerHTML = `<div class="popover-section-label">Kind</div><div class="conn-type-row">${kindButtons}</div>`
+  const { el: popover, dismiss } = createPopover(
+    'msg-popover',
+    ['conn-popover'],
+    screenX,
+    screenY,
+    onDismiss,
+    [
+      {
+        key: 'Delete',
+        guard: e => (e.target as HTMLElement).tagName === 'INPUT',
+        callback: e => { e.preventDefault(); onDelete() },
+      },
+      {
+        key: 'Backspace',
+        guard: e => (e.target as HTMLElement).tagName === 'INPUT',
+        callback: e => { e.preventDefault(); onDelete() },
+      },
+    ],
+  )
+  currentDismiss = dismiss
 
-  layer.appendChild(popover)
+  popover.innerHTML = `<div class="popover-section-label">Kind</div><div class="conn-type-row">${kindButtons}</div>`
 
   // Kind buttons
   popover.querySelectorAll<HTMLButtonElement>('.msg-kind-btn').forEach(btn => {
@@ -48,31 +64,6 @@ export function showMsgPopover(
       onChange({ kind: btn.dataset.kind as SequenceMessage['kind'] })
     })
   })
-
-  const dismiss = () => {
-    popover.remove()
-    onDismiss()
-    document.removeEventListener('mousedown', onOutside)
-    document.removeEventListener('keydown', onKey)
-  }
-
-  const onOutside = (e: MouseEvent) => {
-    if (!popover.contains(e.target as Node)) dismiss()
-  }
-  const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') dismiss()
-    if (e.key === 'Delete' || e.key === 'Backspace') {
-      if ((e.target as HTMLElement).tagName === 'INPUT') return
-      e.preventDefault()
-      onDelete()
-      dismiss()
-    }
-  }
-
-  setTimeout(() => {
-    document.addEventListener('mousedown', onOutside)
-    document.addEventListener('keydown', onKey)
-  }, 150)
 
   return dismiss
 }

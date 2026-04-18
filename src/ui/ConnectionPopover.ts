@@ -1,6 +1,7 @@
 import type { ConnectionType, Multiplicity, ElbowMode } from '../entities/Connection.ts'
 import type { ElementConfig } from '../config/ElementConfig.ts'
 import { svgIcon as S } from './svgIcon.ts'
+import { createPopover } from './popover.ts'
 
 export const MULTIPLICITIES: Multiplicity[] = ['', '1', '0..1', '*', '1..*', '0..*']
 
@@ -87,19 +88,12 @@ export function showConnectionPopover(
 ) {
   document.getElementById('conn-popover')?.remove()
 
-  const layer = document.getElementById('popover-layer')!
   const types = allowedConnectionTypes(srcConfig, tgtConfig)
   const showMultiplicity =
     (srcConfig?.supportsMultiplicity ?? true) && (tgtConfig?.supportsMultiplicity ?? true) &&
     types.some(t => ['association', 'composition', 'aggregation', 'inheritance', 'realization', 'dependency'].includes(t))
 
   const activeType = current?.type ?? types[0] ?? 'association'
-
-  const popover = document.createElement('div')
-  popover.id = 'conn-popover'
-  popover.classList.add('popover', 'conn-popover')
-  popover.style.left = `${screenX}px`
-  popover.style.top  = `${screenY}px`
 
   // Build type icon buttons from the allowed types in display order
   const available = ALL_TYPE_ICONS.filter(x => types.includes(x.type))
@@ -167,6 +161,8 @@ export function showConnectionPopover(
     </div>
   ` : ''
 
+  const { el: popover, dismiss } = createPopover('conn-popover', ['conn-popover'], screenX, screenY, onDismiss)
+
   popover.innerHTML = `
     <div class="popover-section-label">Type</div>
     <div class="conn-type-row">
@@ -176,8 +172,6 @@ export function showConnectionPopover(
     ${multHtml}
     ${elbowHtml}
   `
-
-  layer.appendChild(popover)
 
   let currentType = activeType
 
@@ -225,26 +219,6 @@ export function showConnectionPopover(
     const { type, src, tgt } = getValues()
     onConfirm(type, src, tgt)
   })
-
-  const dismiss = () => {
-    popover.remove()
-    onDismiss()
-    document.removeEventListener('mousedown', onOutside)
-    document.removeEventListener('keydown', onKey)
-  }
-
-  const onOutside = (e: MouseEvent) => {
-    if (!popover.contains(e.target as Node)) dismiss()
-  }
-
-  const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') dismiss()
-  }
-
-  setTimeout(() => {
-    document.addEventListener('mousedown', onOutside)
-    document.addEventListener('keydown', onKey)
-  }, 150)
 
   return dismiss
 }

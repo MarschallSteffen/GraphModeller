@@ -8,6 +8,7 @@
 import type { ConnectionType, Multiplicity } from '../entities/Connection.ts'
 import { allowedConnectionTypes, ALL_TYPE_ICONS, MULTIPLICITIES } from './ConnectionPopover.ts'
 import type { ElementConfig } from '../config/ElementConfig.ts'
+import { createPopover } from './popover.ts'
 
 const ACCENT_COLORS = [
   '--ctp-red',
@@ -22,9 +23,7 @@ const ACCENT_COLORS = [
 
 // ── Bulk Element Panel ────────────────────────────────────────────────────────
 
-let currentElementPanel: HTMLElement | null = null
-let currentElementOutsideHandler: ((e: MouseEvent) => void) | null = null
-let pendingElementTimerId: ReturnType<typeof setTimeout> | null = null
+let currentElementDismiss: (() => void) | null = null
 
 export interface BulkElementItem {
   id: string
@@ -41,14 +40,6 @@ export function showBulkElementPanel(
   onAccentColorChange: (color: string | undefined) => void,
 ) {
   hideBulkElementPanel()
-
-  const layer = document.getElementById('popover-layer')!
-
-  const panel = document.createElement('div')
-  panel.id = 'bulk-elem-panel'
-  panel.classList.add('popover', 'bulk-elem-panel')
-  panel.style.left = `${screenX}px`
-  panel.style.top  = `${screenY}px`
 
   // multiInstance row: only if ALL items support properties
   const allSupportProps = items.every(it => it.supportsProperties)
@@ -68,6 +59,9 @@ export function showBulkElementPanel(
   const firstColor = items[0].accentColor
   const sharedColor = items.every(it => it.accentColor === firstColor) ? firstColor : undefined
 
+  const { el: panel, dismiss } = createPopover('bulk-elem-panel', ['bulk-elem-panel'], screenX, screenY)
+  currentElementDismiss = dismiss
+
   panel.innerHTML = `
     <div class="popover-section-label">Multiple selection (${items.length})</div>
     ${multiRow}
@@ -76,9 +70,6 @@ export function showBulkElementPanel(
       <div class="accent-swatches" id="bulk-ep-accent-swatches"></div>
     </div>
   `
-
-  layer.appendChild(panel)
-  currentElementPanel = panel
 
   if (allSupportProps) {
     const checkbox = panel.querySelector<HTMLInputElement>('#bulk-ep-multi')!
@@ -124,35 +115,16 @@ export function showBulkElementPanel(
     onAccentColorChange(undefined)
   })
   swatchContainer.appendChild(clearBtn)
-
-  const onOutside = (e: MouseEvent) => {
-    if (!panel.contains(e.target as Node)) hideBulkElementPanel()
-  }
-  pendingElementTimerId = setTimeout(() => {
-    pendingElementTimerId = null
-    currentElementOutsideHandler = onOutside
-    document.addEventListener('mousedown', onOutside)
-  }, 150)
 }
 
 export function hideBulkElementPanel() {
-  if (pendingElementTimerId !== null) {
-    clearTimeout(pendingElementTimerId)
-    pendingElementTimerId = null
-  }
-  if (currentElementOutsideHandler) {
-    document.removeEventListener('mousedown', currentElementOutsideHandler)
-    currentElementOutsideHandler = null
-  }
-  currentElementPanel?.remove()
-  currentElementPanel = null
+  currentElementDismiss?.()
+  currentElementDismiss = null
 }
 
 // ── Bulk Connection Panel ─────────────────────────────────────────────────────
 
-let currentConnPanel: HTMLElement | null = null
-let currentConnOutsideHandler: ((e: MouseEvent) => void) | null = null
-let pendingConnTimerId: ReturnType<typeof setTimeout> | null = null
+let currentConnDismiss: (() => void) | null = null
 
 export interface BulkConnectionItem {
   id: string
@@ -173,8 +145,6 @@ export function showBulkConnectionPanel(
   hideBulkConnectionPanel()
 
   if (items.length === 0) return
-
-  const layer = document.getElementById('popover-layer')!
 
   // Compute intersection of allowed types across all connections
   const intersectionSet = items.reduce<Set<ConnectionType>>((acc, it) => {
@@ -200,11 +170,13 @@ export function showBulkConnectionPanel(
   const preSelSrcMult: Multiplicity = items.every(it => it.sourceMultiplicity === firstSrcMult) ? firstSrcMult : ''
   const preSelTgtMult: Multiplicity = items.every(it => it.targetMultiplicity === firstTgtMult) ? firstTgtMult : ''
 
-  const panel = document.createElement('div')
-  panel.id = 'bulk-conn-panel'
-  panel.classList.add('popover', 'conn-popover', 'bulk-conn-panel')
-  panel.style.left = `${screenX}px`
-  panel.style.top  = `${screenY}px`
+  const { el: panel, dismiss } = createPopover(
+    'bulk-conn-panel',
+    ['conn-popover', 'bulk-conn-panel'],
+    screenX,
+    screenY,
+  )
+  currentConnDismiss = dismiss
 
   const typeButtonsHtml = intersectionTypes.map(({ type, icon, label }) => `
     <button class="conn-type-btn${activeType === type ? ' active' : ''}" data-type="${type}" title="${label}" aria-label="${label}">${icon}</button>
@@ -232,9 +204,6 @@ export function showBulkConnectionPanel(
     ${multHtml}
   `
 
-  layer.appendChild(panel)
-  currentConnPanel = panel
-
   panel.querySelectorAll<HTMLButtonElement>('.conn-type-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const type = btn.dataset.type as ConnectionType
@@ -251,28 +220,11 @@ export function showBulkConnectionPanel(
       onMultiplicityChange(src, tgt)
     })
   }
-
-  const onOutside = (e: MouseEvent) => {
-    if (!panel.contains(e.target as Node)) hideBulkConnectionPanel()
-  }
-  pendingConnTimerId = setTimeout(() => {
-    pendingConnTimerId = null
-    currentConnOutsideHandler = onOutside
-    document.addEventListener('mousedown', onOutside)
-  }, 150)
 }
 
 export function hideBulkConnectionPanel() {
-  if (pendingConnTimerId !== null) {
-    clearTimeout(pendingConnTimerId)
-    pendingConnTimerId = null
-  }
-  if (currentConnOutsideHandler) {
-    document.removeEventListener('mousedown', currentConnOutsideHandler)
-    currentConnOutsideHandler = null
-  }
-  currentConnPanel?.remove()
-  currentConnPanel = null
+  currentConnDismiss?.()
+  currentConnDismiss = null
 }
 
 /** Hide all bulk panels. */
