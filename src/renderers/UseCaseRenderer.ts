@@ -62,6 +62,8 @@ export class UseCaseRenderer {
     this.bg.setAttribute('cy', String(ry))
     this.bg.setAttribute('rx', String(rx))
     this.bg.setAttribute('ry', String(ry))
+    this.bg.style.fill = useCase.accentColor ? `var(${useCase.accentColor})` : ''
+    this.el.classList.toggle('has-accent', !!useCase.accentColor)
 
     this.nameText.textContent = useCase.name
     this.nameText.setAttribute('x', String(rx))

@@ -13,6 +13,7 @@ export interface PackageLikeEntity {
   name: string
   position: { x: number; y: number }
   size: { w: number; h: number }
+  accentColor?: string
 }
 
 export class PackageRenderer {
@@ -91,6 +92,10 @@ export class PackageRenderer {
     this.bg.setAttribute('width', String(this.computedW))
     this.bg.setAttribute('height', String(this.computedH))
     this.bg.setAttribute('rx', '4')
+    const accentFill = entity.accentColor ? `var(${entity.accentColor})` : ''
+    this.tab.style.fill = accentFill
+    this.bg.style.fill  = accentFill
+    this.el.classList.toggle('has-accent', !!entity.accentColor)
 
     updatePortPositions(this.portsGroup, this.computedW, this.computedH, portPosition)
   }

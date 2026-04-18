@@ -146,6 +146,7 @@
         "w": 260,
         "h": 160
       },
+      "accentColor": "--ctp-mauve",
       "attributes": [
         "-diagram: Diagram",
         "-undoStack: Diagram[]",
@@ -178,6 +179,7 @@
       "type": "storage",
       "id": "tam-localstorage",
       "name": "localStorage",
+      "accentColor": "--ctp-green",
       "position": {
         "x": 102.19140625,
         "y": 1173.6939086914062
@@ -243,6 +245,7 @@
       "type": "agent",
       "id": "tam-store",
       "name": "DiagramStore",
+      "accentColor": "--ctp-mauve",
       "position": {
         "x": 123.08633232116699,
         "y": 997.1442260742188
@@ -679,6 +682,7 @@
           "id": "ll-store",
           "elementType": "seq-lifeline",
           "name": "DiagramStore",
+          "accentColor": "--ctp-mauve",
           "messages": [
             {
               "id": "m6",

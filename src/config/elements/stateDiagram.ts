@@ -11,6 +11,7 @@ export const stateConfig: ElementConfig = {
   },
   preferredConnectionType: 'transition',
   supportsMultiplicity: false,
+  supportsProperties: true,
   shape: 'pill',
 }
 

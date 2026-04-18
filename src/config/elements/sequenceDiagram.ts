@@ -15,4 +15,5 @@ export const seqFragmentConfig: ElementConfig = {
   ports: [],
   connectionRule: { asSource: [], asTarget: [] },
   supportsMultiplicity: false,
+  supportsProperties: true,
 }

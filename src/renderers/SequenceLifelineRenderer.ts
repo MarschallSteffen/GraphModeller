@@ -123,6 +123,8 @@ export class SequenceLifelineRenderer {
     this.headerBg.setAttribute('width',  String(this.computedW))
     this.headerBg.setAttribute('height', String(HEADER_H))
     this.headerBg.setAttribute('rx', '4')
+    this.headerBg.style.fill = ll.accentColor ? `var(${ll.accentColor})` : ''
+    this.el.classList.toggle('has-accent', !!ll.accentColor)
 
     this.headerText.textContent = ll.name
     this.headerText.setAttribute('x', String(this.computedW / 2))

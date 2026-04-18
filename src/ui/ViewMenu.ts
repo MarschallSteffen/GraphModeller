@@ -2,16 +2,20 @@ import { registerMenu, closeAllMenus } from './menuRegistry.ts'
 
 export interface ViewMenuCallbacks {
   onToggleComments: (show: boolean) => void
+  onToggleMinimap: (show: boolean) => void
 }
 
 export class ViewMenu {
   private dropdown: HTMLElement
   private menuBtn: HTMLButtonElement
   private commentsCheckmark: HTMLSpanElement
+  private minimapCheckmark: HTMLSpanElement
   private showComments: boolean
+  private showMinimap: boolean
 
-  constructor(container: HTMLElement, callbacks: ViewMenuCallbacks, initialShowComments: boolean) {
+  constructor(container: HTMLElement, callbacks: ViewMenuCallbacks, initialShowComments: boolean, initialShowMinimap: boolean) {
     this.showComments = initialShowComments
+    this.showMinimap = initialShowMinimap
 
     const menuWrap = document.createElement('div')
     menuWrap.classList.add('titlebar-menu')
@@ -46,6 +50,27 @@ export class ViewMenu {
     })
 
     this.dropdown.appendChild(item)
+
+    // ── Minimap toggle ──────────────────────────────────────────────────────
+    const minimapItem = document.createElement('button')
+    minimapItem.classList.add('titlebar-menu-item')
+
+    this.minimapCheckmark = document.createElement('span')
+    this.minimapCheckmark.classList.add('menu-checkmark')
+    this.minimapCheckmark.textContent = '✓'
+    this.minimapCheckmark.style.visibility = initialShowMinimap ? 'visible' : 'hidden'
+
+    minimapItem.append(this.minimapCheckmark)
+    minimapItem.append(document.createTextNode(' Show Minimap'))
+    minimapItem.addEventListener('click', () => {
+      this.closeDropdown()
+      this.showMinimap = !this.showMinimap
+      this.minimapCheckmark.style.visibility = this.showMinimap ? 'visible' : 'hidden'
+      callbacks.onToggleMinimap(this.showMinimap)
+    })
+
+    this.dropdown.appendChild(minimapItem)
+
     menuWrap.append(this.menuBtn, this.dropdown)
     container.appendChild(menuWrap)
 
@@ -56,6 +81,11 @@ export class ViewMenu {
   setCommentsVisible(show: boolean) {
     this.showComments = show
     this.commentsCheckmark.style.visibility = show ? 'visible' : 'hidden'
+  }
+
+  setMinimapVisible(show: boolean) {
+    this.showMinimap = show
+    this.minimapCheckmark.style.visibility = show ? 'visible' : 'hidden'
   }
 
   private toggleDropdown() {

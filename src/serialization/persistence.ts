@@ -289,40 +289,34 @@ function crc32(data: Uint8Array): number {
   return (crc ^ 0xFFFFFFFF) >>> 0
 }
 
-/**
- * Render the diagram SVG to a PNG and inject the diagram JSON as an iTXt chunk.
- * Returns the raw bytes — used by both save-to-file and download flows.
- */
-async function buildArchPngBytes(diagram: Diagram): Promise<Uint8Array> {
-  // If there's no SVG context (called from autosave before first render), skip rendering.
-  // We only get here via saveDiagram which always has a live SVG, so this is safe.
-  const svgEl    = document.querySelector<SVGSVGElement>('#canvas')
+/** Compute export dimensions from the live view-group bounding box. Returns null on empty diagram. */
+function getExportBounds(PADDING = 48): { svgEl: SVGSVGElement; viewGroup: SVGGElement; contentW: number; contentH: number; offsetX: number; offsetY: number } | null {
+  const svgEl     = document.querySelector<SVGSVGElement>('#canvas')
   const viewGroup = document.querySelector<SVGGElement>('#view-group')
-  if (!svgEl || !viewGroup) throw new Error('SVG not ready')
-
-  const PADDING = 48
+  if (!svgEl || !viewGroup) return null
   const savedTransform = viewGroup.getAttribute('transform') ?? ''
   viewGroup.setAttribute('transform', '')
   const bbox = viewGroup.getBBox()
   viewGroup.setAttribute('transform', savedTransform)
-
-  if (bbox.width === 0 || bbox.height === 0) {
-    // Empty diagram — return a 1×1 transparent PNG with the JSON
-    const tiny = new Uint8Array([
-      137,80,78,71,13,10,26,10, // PNG signature
-      0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,2,0,0,0,144,119,83,222, // IHDR
-      0,0,0,12,73,68,65,84,8,215,99,248,207,192,0,0,0,2,0,1,231,21,33,69, // IDAT
-      0,0,0,0,73,69,78,68,174,66,96,130, // IEND
-    ])
-    const jsonStr = JSON.stringify(serializeDiagramV2(diagram))
-    return injectPngiTxt(tiny, ARCH_KEYWORD, jsonStr)
+  if (bbox.width === 0 || bbox.height === 0) return null
+  return {
+    svgEl,
+    viewGroup,
+    contentW: Math.ceil(bbox.width  + PADDING * 2),
+    contentH: Math.ceil(bbox.height + PADDING * 2),
+    offsetX:  bbox.x - PADDING,
+    offsetY:  bbox.y - PADDING,
   }
+}
 
-  const contentW = Math.ceil(bbox.width  + PADDING * 2)
-  const contentH = Math.ceil(bbox.height + PADDING * 2)
-  const offsetX  = bbox.x - PADDING
-  const offsetY  = bbox.y - PADDING
-
+/** Clone and prepare the live SVG for export — inlines styles, converts foreignObjects, adds watermark. */
+function prepareSvgForExport(
+  svgEl: SVGSVGElement,
+  contentW: number,
+  contentH: number,
+  offsetX: number,
+  offsetY: number,
+): SVGSVGElement {
   const clonedSvg = svgEl.cloneNode(true) as SVGSVGElement
   clonedSvg.setAttribute('width',   String(contentW))
   clonedSvg.setAttribute('height',  String(contentH))
@@ -336,7 +330,7 @@ async function buildArchPngBytes(diagram: Diagram): Promise<Uint8Array> {
   const PAD_X = 8
   const PAD_Y = 6
 
-  // Reuse the renderer's measure context for word-wrapping
+  // Canvas 2D context used only for text measurement (not rendered)
   const measureCtx = document.createElement('canvas').getContext('2d')!
   measureCtx.font = `${FONT_SIZE}px ${FONT_FAMILY}`
   function wrapWords(text: string, maxWidth: number): string[] {
@@ -401,6 +395,34 @@ async function buildArchPngBytes(diagram: Diagram): Promise<Uint8Array> {
   styleEl.textContent = collectStyles()
   clonedSvg.prepend(styleEl)
 
+  return clonedSvg
+}
+
+/**
+ * Render the diagram SVG to a PNG and inject the diagram JSON as an iTXt chunk.
+ * Returns the raw bytes — used by both save-to-file and download flows.
+ */
+async function buildArchPngBytes(diagram: Diagram): Promise<Uint8Array> {
+  // If there's no SVG context (called from autosave before first render), skip rendering.
+  // We only get here via saveDiagram which always has a live SVG, so this is safe.
+  if (!document.querySelector('#canvas')) throw new Error('SVG not ready')
+
+  const bounds = getExportBounds()
+  if (!bounds) {
+    // Empty diagram — return a 1×1 transparent PNG with the JSON
+    const tiny = new Uint8Array([
+      137,80,78,71,13,10,26,10, // PNG signature
+      0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,2,0,0,0,144,119,83,222, // IHDR
+      0,0,0,12,73,68,65,84,8,215,99,248,207,192,0,0,0,2,0,1,231,21,33,69, // IDAT
+      0,0,0,0,73,69,78,68,174,66,96,130, // IEND
+    ])
+    const jsonStr = JSON.stringify(serializeDiagramV2(diagram))
+    return injectPngiTxt(tiny, ARCH_KEYWORD, jsonStr)
+  }
+
+  const { svgEl, contentW, contentH, offsetX, offsetY } = bounds
+  const clonedSvg = prepareSvgForExport(svgEl, contentW, contentH, offsetX, offsetY)
+
   const svgString = new XMLSerializer().serializeToString(clonedSvg)
   const svgBlob   = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' })
   const svgUrl    = URL.createObjectURL(svgBlob)
@@ -440,6 +462,25 @@ export async function exportDiagramToArchPng(
 ): Promise<void> {
   const bytes = await buildArchPngBytes(diagram)
   triggerDownload(new Blob([bytes.buffer as ArrayBuffer], { type: 'image/png' }), `${filename}.arch.png`)
+}
+
+/**
+ * Download the current diagram as a plain `.svg` file.
+ * The SVG is self-contained: CSS styles and theme variables are inlined,
+ * and <foreignObject> nodes are converted to <text>/<tspan>.
+ */
+export function exportDiagramToSvg(filename = 'diagram'): void {
+  const bounds = getExportBounds()
+  if (!bounds) {
+    // Empty diagram — output a minimal valid SVG
+    const emptySvg = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>'
+    triggerDownload(new Blob([emptySvg], { type: 'image/svg+xml;charset=utf-8' }), `${filename}.svg`)
+    return
+  }
+  const { svgEl, contentW, contentH, offsetX, offsetY } = bounds
+  const prepared = prepareSvgForExport(svgEl, contentW, contentH, offsetX, offsetY)
+  const svgString = new XMLSerializer().serializeToString(prepared)
+  triggerDownload(new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' }), `${filename}.svg`)
 }
 
 /**
@@ -672,24 +713,29 @@ export function serializeDiagramV2(diagram: Diagram): unknown {
     if (c.stereotype !== 'class') el.stereotype = c.stereotype
     if (c.packageId) el.packageId = c.packageId
     if (c.multiInstance) el.multiInstance = c.multiInstance
+    if (c.accentColor) el.accentColor = c.accentColor
     if (c.attributes.length) el.attributes = c.attributes.map(serializeAttribute)
     if (c.methods.length) el.methods = c.methods.map(serializeMethod)
     elements.push(el)
   }
 
   for (const p of diagram.packages) {
-    elements.push({ type: 'uml-package', id: p.id, name: p.name, position: p.position, size: p.size })
+    const el: Record<string, unknown> = { type: 'uml-package', id: p.id, name: p.name, position: p.position, size: p.size }
+    if (p.accentColor) el.accentColor = p.accentColor
+    elements.push(el)
   }
 
   for (const s of diagram.storages) {
     const el: Record<string, unknown> = { type: 'storage', id: s.id, name: s.name, position: s.position, size: s.size }
     if (s.multiInstance) el.multiInstance = s.multiInstance
+    if (s.accentColor) el.accentColor = s.accentColor
     elements.push(el)
   }
 
   for (const a of diagram.actors) {
     const el: Record<string, unknown> = { type: a.elementType, id: a.id, name: a.name, position: a.position, size: a.size }
     if (a.multiInstance) el.multiInstance = a.multiInstance
+    if (a.accentColor) el.accentColor = a.accentColor
     elements.push(el)
   }
 
@@ -697,19 +743,26 @@ export function serializeDiagramV2(diagram: Diagram): unknown {
     const el: Record<string, unknown> = { type: 'queue', id: q.id, name: q.name, position: q.position, size: q.size }
     if (q.multiInstance) el.multiInstance = q.multiInstance
     if (q.flowReversed) el.flowReversed = q.flowReversed
+    if (q.accentColor) el.accentColor = q.accentColor
     elements.push(el)
   }
 
   for (const u of diagram.useCases) {
-    elements.push({ type: 'use-case', id: u.id, name: u.name, position: u.position, size: u.size })
+    const el: Record<string, unknown> = { type: 'use-case', id: u.id, name: u.name, position: u.position, size: u.size }
+    if (u.accentColor) el.accentColor = u.accentColor
+    elements.push(el)
   }
 
   for (const s of diagram.ucSystems) {
-    elements.push({ type: 'uc-system', id: s.id, name: s.name, position: s.position, size: s.size })
+    const el: Record<string, unknown> = { type: 'uc-system', id: s.id, name: s.name, position: s.position, size: s.size }
+    if (s.accentColor) el.accentColor = s.accentColor
+    elements.push(el)
   }
 
   for (const s of diagram.states) {
-    elements.push({ type: 'state', id: s.id, name: s.name, position: s.position, size: s.size })
+    const el: Record<string, unknown> = { type: 'state', id: s.id, name: s.name, position: s.position, size: s.size }
+    if (s.accentColor) el.accentColor = s.accentColor
+    elements.push(el)
   }
 
   for (const s of diagram.startStates) {
@@ -725,7 +778,9 @@ export function serializeDiagramV2(diagram: Diagram): unknown {
   }
 
   for (const f of diagram.combinedFragments) {
-    elements.push({ type: 'seq-fragment', id: f.id, operator: f.operator, condition: f.condition, position: f.position, size: f.size })
+    const el: Record<string, unknown> = { type: 'seq-fragment', id: f.id, operator: f.operator, condition: f.condition, position: f.position, size: f.size }
+    if (f.accentColor) el.accentColor = f.accentColor
+    elements.push(el)
   }
 
   for (const c of diagram.comments) {
@@ -796,6 +851,7 @@ export function deserializeV2(raw: Record<string, unknown>): Diagram {
           position,
           size,
           multiInstance: el.multiInstance === true,
+          accentColor: parseAccentColor(el.accentColor),
         }
         if (needsLayout) cls._needsLayout = true
         diagram.classes.push(cls)
@@ -804,6 +860,7 @@ export function deserializeV2(raw: Record<string, unknown>): Diagram {
       case 'uml-package': {
         const pkg: UmlPackage & { _needsLayout?: boolean } = {
           id, elementType: 'uml-package', name, position, size,
+          accentColor: parseAccentColor(el.accentColor),
         }
         if (needsLayout) pkg._needsLayout = true
         diagram.packages.push(pkg)
@@ -812,6 +869,7 @@ export function deserializeV2(raw: Record<string, unknown>): Diagram {
       case 'storage': {
         const s: Storage & { _needsLayout?: boolean } = {
           id, elementType: 'storage', name, position, size, multiInstance: el.multiInstance === true,
+          accentColor: parseAccentColor(el.accentColor),
         }
         if (needsLayout) s._needsLayout = true
         diagram.storages.push(s)
@@ -823,6 +881,7 @@ export function deserializeV2(raw: Record<string, unknown>): Diagram {
         const a: Actor & { _needsLayout?: boolean } = {
           id, elementType: type as 'agent' | 'human-agent' | 'uc-actor', name, position, size,
           multiInstance: el.multiInstance === true,
+          accentColor: parseAccentColor(el.accentColor),
         }
         if (needsLayout) a._needsLayout = true
         diagram.actors.push(a)
@@ -833,25 +892,35 @@ export function deserializeV2(raw: Record<string, unknown>): Diagram {
           id, elementType: 'queue', name, position, size,
           multiInstance: el.multiInstance === true,
           flowReversed: el.flowReversed === true,
+          accentColor: parseAccentColor(el.accentColor),
         }
         if (needsLayout) q._needsLayout = true
         diagram.queues.push(q)
         break
       }
       case 'use-case': {
-        const u: UseCase & { _needsLayout?: boolean } = { id, elementType: 'use-case', name, position, size }
+        const u: UseCase & { _needsLayout?: boolean } = {
+          id, elementType: 'use-case', name, position, size,
+          accentColor: parseAccentColor(el.accentColor),
+        }
         if (needsLayout) u._needsLayout = true
         diagram.useCases.push(u)
         break
       }
       case 'uc-system': {
-        const u: UCSystem & { _needsLayout?: boolean } = { id, elementType: 'uc-system', name, position, size }
+        const u: UCSystem & { _needsLayout?: boolean } = {
+          id, elementType: 'uc-system', name, position, size,
+          accentColor: parseAccentColor(el.accentColor),
+        }
         if (needsLayout) u._needsLayout = true
         diagram.ucSystems.push(u)
         break
       }
       case 'state': {
-        const s: State & { _needsLayout?: boolean } = { id, elementType: 'state', name, position, size }
+        const s: State & { _needsLayout?: boolean } = {
+          id, elementType: 'state', name, position, size,
+          accentColor: parseAccentColor(el.accentColor),
+        }
         if (needsLayout) s._needsLayout = true
         diagram.states.push(s)
         break
@@ -883,6 +952,7 @@ export function deserializeV2(raw: Record<string, unknown>): Diagram {
           operator: parseFragmentOperator(el.operator),
           condition: typeof el.condition === 'string' ? el.condition : '',
           position, size,
+          accentColor: parseAccentColor(el.accentColor),
         }
         if (needsLayout) f._needsLayout = true
         diagram.combinedFragments.push(f)
@@ -968,6 +1038,14 @@ function parseStereotype(raw: unknown): 'class' | 'abstract' | 'interface' | 'en
   return 'class'
 }
 
+const VALID_ACCENT_COLORS = new Set([
+  '--ctp-red', '--ctp-peach', '--ctp-yellow', '--ctp-green',
+  '--ctp-teal', '--ctp-blue', '--ctp-lavender', '--ctp-mauve',
+])
+function parseAccentColor(raw: unknown): string | undefined {
+  return typeof raw === 'string' && VALID_ACCENT_COLORS.has(raw) ? raw : undefined
+}
+
 function parseFragmentOperator(raw: unknown): 'alt' | 'opt' | 'loop' | 'par' | 'ref' {
   if (raw === 'opt' || raw === 'loop' || raw === 'par' || raw === 'ref') return raw
   return 'alt'
@@ -1009,6 +1087,7 @@ function parseLifelines(raw: unknown): SequenceLifeline[] {
       messages: parseMessages(ll.messages),
       position: parsePosition(ll.position),
       size: parseSize(ll.size) ?? { w: 140, h: 40 },
+      accentColor: parseAccentColor(ll.accentColor),
     }))
 }
 

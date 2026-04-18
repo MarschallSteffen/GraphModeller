@@ -62,6 +62,8 @@ export class StateRenderer {
     this.bg.setAttribute('height', String(this.computedH))
     this.bg.setAttribute('rx', String(rx))
     this.bg.setAttribute('ry', String(rx))
+    this.bg.style.fill = state.accentColor ? `var(${state.accentColor})` : ''
+    this.el.classList.toggle('has-accent', !!state.accentColor)
 
     this.nameText.textContent = state.name
     this.nameText.setAttribute('x', String(this.computedW / 2))

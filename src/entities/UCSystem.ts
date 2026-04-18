@@ -6,6 +6,7 @@ export interface UCSystem {
   name: string
   position: Point
   size: Size
+  accentColor?: string
 }
 
 export function createUCSystem(partial: Partial<UCSystem> & { name: string }): UCSystem {

@@ -16,6 +16,7 @@ Output a single valid JSON object. Do not include any explanation, markdown fenc
 ## Element types
 
 Every element needs at minimum: \`"type"\`, \`"id"\` (short human-readable slug), and \`"name"\` (except start-state / end-state).
+The field name for the element kind is **\`"type"\`** — not \`"elementType"\`.
 Omit \`position\` and \`size\` — the tool auto-lays elements out.
 
 | type | diagram | extra fields |
@@ -36,13 +37,22 @@ Omit \`position\` and \`size\` — the tool auto-lays elements out.
 | \`seq-fragment\` | Sequence | \`operator\`: "alt"·"opt"·"loop"·"par"·"ref"; \`condition\`: string label; give explicit \`position\` + \`size\` to overlay a seq-diagram region |
 | \`comment\` | Any | \`text\`: multiline annotation text; optional \`pinnedTo\`: id of another element to attach a dashed line to; omit \`position\` — it will be placed automatically to the right of the pinned element |
 
+### Accent colors (optional)
+
+Any element except \`start-state\`, \`end-state\`, \`uc-actor\`, and \`comment\` supports an optional \`"accentColor"\` field to highlight it visually.
+Valid values (Catppuccin palette CSS variable names):
+\`"--ctp-red"\` · \`"--ctp-peach"\` · \`"--ctp-yellow"\` · \`"--ctp-green"\` · \`"--ctp-teal"\` · \`"--ctp-blue"\` · \`"--ctp-lavender"\` · \`"--ctp-mauve"\`
+
+Use sparingly — accent 2–4 elements to draw attention to key components, not every element.
+
+Example: \`{ "type": "agent", "id": "api-gw", "name": "API Gateway", "accentColor": "--ctp-blue" }\`
+
 ### Sequence diagram lifelines
 
 Inside a \`seq-diagram\` element, include a \`lifelines\` array. Each lifeline:
 \`\`\`json
 {
   "id": "ll-name",
-  "elementType": "seq-lifeline",
   "name": "ComponentName",
   "position": { "x": 20, "y": 0 },
   "size": { "w": 140, "h": 40 },
@@ -58,6 +68,7 @@ Inside a \`seq-diagram\` element, include a \`lifelines\` array. Each lifeline:
 }
 \`\`\`
 - Lifeline \`position.x\` is relative to the seq-diagram container; space them ~160px apart.
+- Lifelines also support \`"accentColor"\` to color the header box.
 - Message \`kind\`: "sync" | "async" | "create" | "return" | "self"
 - Message \`targetLifelineId\`: null for self-calls (use kind "self" instead)
 - \`slotIndex\`: sequential integers starting at 0 across all lifelines (determines vertical ordering)

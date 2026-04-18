@@ -6,6 +6,7 @@ export interface State {
   name: string
   position: Point
   size: Size
+  accentColor?: string
 }
 
 export function createState(partial: Partial<State> & { name: string }): State {

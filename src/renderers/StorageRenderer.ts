@@ -62,6 +62,8 @@ export class StorageRenderer {
     this.bg.setAttribute('height', String(this.computedH))
     this.bg.setAttribute('rx', String(rx))
     this.bg.setAttribute('ry', String(rx))
+    this.bg.style.fill = storage.accentColor ? `var(${storage.accentColor})` : ''
+    this.el.classList.toggle('has-accent', !!storage.accentColor)
 
     this.nameText.textContent = storage.name
     this.nameText.setAttribute('x', String(this.computedW / 2))

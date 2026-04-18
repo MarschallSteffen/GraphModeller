@@ -12,6 +12,7 @@ import type { State } from '../entities/State.ts'
 import type { StartState } from '../entities/StartState.ts'
 import type { EndState } from '../entities/EndState.ts'
 import type { SequenceDiagram } from '../entities/SequenceDiagram.ts'
+import type { SequenceLifeline } from '../entities/SequenceLifeline.ts'
 import type { CombinedFragment } from '../entities/CombinedFragment.ts'
 import type { Comment } from '../entities/Comment.ts'
 import type { ElementKind } from '../types.ts'
@@ -497,6 +498,13 @@ export class DiagramStore {
   updateSequenceDiagram(id: string, patch: Partial<SequenceDiagram>) {
     const el = this.diagram.sequenceDiagrams.find(s => s.id === id); if (!el) return
     if (!this._undoGroupActive) this.pushUndoSnapshot(); Object.assign(el, patch); this.emit('seq-diagram:update', el)
+  }
+  updateLifeline(sdId: string, llId: string, patch: Partial<SequenceLifeline>) {
+    const sd = this.diagram.sequenceDiagrams.find(s => s.id === sdId)
+    if (!sd) return
+    if (!this._undoGroupActive) this.pushUndoSnapshot()
+    sd.lifelines = sd.lifelines.map(l => l.id === llId ? { ...l, ...patch } : l)
+    this.emit('seq-diagram:update', sd)
   }
   removeSequenceDiagram(id: string) {
     this.pushUndoSnapshot()

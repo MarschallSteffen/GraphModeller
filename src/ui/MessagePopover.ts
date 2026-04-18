@@ -1,6 +1,10 @@
 import type { SequenceMessage } from '../entities/SequenceLifeline.ts'
 import { svgIcon as S } from './svgIcon.ts'
 
+export function hideMsgPopover() {
+  document.getElementById('msg-popover')?.remove()
+}
+
 export function showMsgPopover(
   screenX: number,
   screenY: number,

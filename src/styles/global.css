@@ -1084,7 +1084,7 @@ body {
 /* ── Element properties panel ──────────────────────────────────────────── */
 .elem-props-panel {
   transform: translateY(-50%);
-  min-width: 160px;
+  min-width: 220px;
   transition: opacity 0.12s;
 }
 .elem-props-panel .props-label {
@@ -1115,7 +1115,7 @@ body {
 .accent-swatches {
   display: flex;
   gap: 4px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 .accent-swatch {
   width: 18px;
@@ -1736,4 +1736,32 @@ body {
 .bulk-conn-panel {
   transform: translate(-100%, 0);
   min-width: unset;
+}
+
+/* ── Accent color: keep text readable on colored backgrounds ────────────── */
+/* Only apply to elements whose fill IS on the accent background.            */
+/* UML class: only header text (title/stereotype) — body members stay normal */
+.has-accent .class-title,
+.has-accent .class-stereotype,
+.has-accent .pkg-name,
+.has-accent .storage-name,
+.has-accent .actor-name,
+.has-accent .queue-name,
+.has-accent .usecase-name,
+.has-accent .sd-state-name,
+.has-accent .seq-header-name {
+  fill: var(--ctp-base) !important;
+}
+
+/* Human-agent stick figure on accent background: make it contrast */
+.has-accent .actor-figure {
+  stroke: var(--ctp-base) !important;
+}
+.has-accent .actor-figure[r] {
+  fill: var(--ctp-base) !important;
+}
+
+/* Queue flow arrow on accent background: use base color for contrast */
+.has-accent .queue-flow-arrow {
+  stroke: var(--ctp-base) !important;
 }

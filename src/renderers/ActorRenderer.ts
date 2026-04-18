@@ -61,6 +61,11 @@ export class ActorRenderer {
 
     this.mainGroup.innerHTML = ''
     const shape = this.buildShape(elementType, this.computedW, this.computedH)
+    // Apply accent color to the background rect
+    if (actor.accentColor && elementType !== 'uc-actor') {
+      (shape as SVGElement).style.fill = `var(${actor.accentColor})`
+    }
+    this.el.classList.toggle('has-accent', !!actor.accentColor && elementType !== 'uc-actor')
     this.mainGroup.appendChild(shape)
 
     if (elementType === 'human-agent' || elementType === 'uc-actor') {

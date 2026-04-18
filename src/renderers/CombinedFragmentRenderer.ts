@@ -22,6 +22,7 @@ export class CombinedFragmentRenderer {
       name: frag.operator + (frag.condition ? ` [${frag.condition}]` : ''),
       position: frag.position,
       size: frag.size,
+      accentColor: frag.accentColor,
     })
 
     this.inner = new PackageRenderer(
@@ -41,6 +42,7 @@ export class CombinedFragmentRenderer {
       name: frag.operator + (frag.condition ? ` [${frag.condition}]` : ''),
       position: frag.position,
       size: frag.size,
+      accentColor: frag.accentColor,
     })
   }
 

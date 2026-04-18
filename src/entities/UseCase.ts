@@ -6,6 +6,7 @@ export interface UseCase {
   name: string
   position: Point
   size: Size
+  accentColor?: string
 }
 
 export function createUseCase(partial: Partial<UseCase> & { name: string }): UseCase {

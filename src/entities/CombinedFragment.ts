@@ -7,6 +7,7 @@ export interface CombinedFragment {
   condition: string
   position: Point
   size: Size
+  accentColor?: string
 }
 
 export function createCombinedFragment(x: number, y: number): CombinedFragment {

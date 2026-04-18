@@ -6,6 +6,7 @@ export interface UmlPackage {
   name: string
   position: Point
   size: Size
+  accentColor?: string
 }
 
 export function createUmlPackage(partial: Partial<UmlPackage> & { name: string }): UmlPackage {

@@ -16,6 +16,7 @@ export interface UmlClass {
   position: Point
   size: Size
   multiInstance: boolean
+  accentColor?: string
 }
 
 export function createUmlClass(partial: Partial<UmlClass> & { name: string }): UmlClass {

@@ -7,6 +7,7 @@ export interface Actor {
   position: Point
   size: Size
   multiInstance: boolean
+  accentColor?: string
 }
 
 export function createActor(

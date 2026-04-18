@@ -113,6 +113,8 @@ export class ClassRenderer {
     this.header.setAttribute('width',  String(this.computedW))
     this.header.setAttribute('height', String(HEADER_H))
     this.header.setAttribute('rx', '6')
+    this.header.style.fill = cls.accentColor ? `var(${cls.accentColor})` : ''
+    this.el.classList.toggle('has-accent', !!cls.accentColor)
 
     // Body (covers everything below header)
     this.body.setAttribute('y',      String(HEADER_H - 6))

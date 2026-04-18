@@ -4,11 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Critical Rules
 
+- **Never push to remote.** Local commits are fine, but never run `git push` or create PRs without explicit instruction.
+
 - **Never duplicate renderer logic across element types.** All renderers must use `svgEl`, `renderPortsInto`, `updatePortPositions`, and `renderShadow` from `renderers/svgUtils.ts`. Port sides come from `PORT_SIDES` (imported from `ports.ts`). Store subscriptions follow the pattern `store.on(ev => { if ev.type === '<kind>:update' && payload.id === ... })`. Do not copy these patterns — call the shared utilities.
 - **All renderers must implement `destroy()`** — at minimum `this.el.remove()`. The `AnyRenderer` interface in `main.ts` requires it.
 - **Connections are always auto-routed** via `bestPortPair` in `routing.ts` — stored ports are updated on every `refreshConnections` call. Never hardcode port sides in connection logic.
 - **`refreshConnections` always passes the fresh `conn` object** from `store.state` directly to `r.updatePoints(...)` as the last argument. Never rely on `this.conn` inside the renderer being up-to-date at call time.
-- **Persistence is JSON** — `saveDiagram` writes the full `Diagram` object as `JSON.stringify`. All persistence lives in `src/serialization/persistence.ts`. **Whenever the save file format changes (new fields, renamed fields, new element types, new connection types), also update the AI system prompt** so AI-assisted diagram generation stays in sync with the actual schema.
+- **Persistence is JSON** — `saveDiagram` writes the full `Diagram` object as `JSON.stringify`. All persistence lives in `src/serialization/persistence.ts`. **Whenever the save file format changes (new fields, renamed fields, new element types, new connection types):**
+  1. Update `serializeDiagramV2` to include the new fields
+  2. Update `deserializeV2` (and `parseLifelines` for lifeline fields) to restore them
+  3. Update the AI system prompt in `src/ui/AiPromptButton.ts` so AI-assisted diagram generation stays in sync with the actual schema
+  4. Update `public/examples/app-architecture.json` to showcase new capabilities
 - **Storage connection direction** — source/target order is canonical. `read` and `write` both use `marker-end` only; direction is determined by which element is source vs target. Use the flip button to reverse.
 - **Element kind types are defined once** in `src/types.ts` (`ElementKind`, `SelectableKind`). Import from there — never re-declare locally.
 - **`Point` and `Size` are defined in `src/entities/common.ts`** — import from there, not from `UmlClass.ts`. UmlClass re-exports them for backwards compatibility.
@@ -17,7 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Element CRUD follows a uniform pattern** in `DiagramStore`. Use `store.findElementById(kind, id)`, `store.findAnyElement(id)`, and `store.updateElementPosition(kind, id, patch)` in controllers.
 - **Wire functions in main.ts** use the generic `wireElementInteraction()` helper. Only class has special behaviour (no vertical resize, member editing). Sequence diagrams have their own `wireSeqDiagramInteraction`.
 - **Sequence diagrams are self-contained containers** — each `SequenceDiagram` owns its `lifelines[]`. Lifeline `position.x` is relative to the container. Connections between lifelines are rendered in `seqConnLayer` using absolute canvas coords. The `refreshSeqDiagram` function (and its extracted helpers `assignEphemeralSlots`, `collectMsgEvents`, `computeActiveBars`) handle all per-container rendering.
-- **Chrome DevTools MCP is allowed** for UI debugging and visual verification.
+- **Always verify visual and UI changes with Chrome DevTools MCP.** After any change affecting rendered output, styling, or layout: start the dev server (`npm run dev`), navigate to `http://localhost:5173` using the `chrome-devtools` MCP tools, take a screenshot, and check the console for errors. Do not mark a UI task complete without this verification step.
 
 ## Project Overview
 

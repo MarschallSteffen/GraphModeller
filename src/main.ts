@@ -30,7 +30,7 @@ import { AiPromptButton } from './ui/AiPromptButton.ts'
 import { saveHandle, loadHandle } from './serialization/fileHandleStore.ts'
 import { Dashboard, addRecentFile, getRecentFiles, injectPersistence, injectHandleStore, injectThumbnailCache, injectReadDiagramJson, injectAcquireWriteHandle } from './ui/Dashboard.ts'
 import { showConnectionPopover } from './ui/ConnectionPopover.ts'
-import { showMsgPopover } from './ui/MessagePopover.ts'
+import { showMsgPopover, hideMsgPopover } from './ui/MessagePopover.ts'
 import { showElementPropertiesPanel, hideElementPropertiesPanel } from './ui/ElementPropertiesPanel.ts'
 import {
   showBulkElementPanel, hideBulkElementPanel,
@@ -223,7 +223,6 @@ selection.onChange(() => updateEditMenu())
 // ─── View menu + show-comments toggle ─────────────────────────────────────────
 
 let showComments = JSON.parse(localStorage.getItem('archetype:show-comments') ?? 'true') as boolean
-let showMinimap  = JSON.parse(localStorage.getItem('archetype:show-minimap')  ?? 'true') as boolean
 
 const viewMenu = new ViewMenu(viewMenuAnchor, {
   onToggleComments: (show: boolean) => {
@@ -232,10 +231,9 @@ const viewMenu = new ViewMenu(viewMenuAnchor, {
     commentLayer.style.display = show ? '' : 'none'
   },
   onToggleMinimap: (show: boolean) => {
-    showMinimap = show
     minimap.setVisible(show)
   },
-}, showComments, showMinimap)
+}, showComments, JSON.parse(localStorage.getItem('archetype:show-minimap') ?? 'true') as boolean)
 
 function ensureCommentsVisible() {
   if (!showComments) {
@@ -850,6 +848,7 @@ function addSeqDiagramRenderer(sd: SequenceDiagram) {
 }
 
 function startLifelineHDrag(sdId: string, llId: string, e: MouseEvent) {
+  hideElementPropertiesPanel()
   const sd = store.state.sequenceDiagrams.find(s => s.id === sdId)
   if (!sd) return
   const ll = sd.lifelines.find(l => l.id === llId)
@@ -884,6 +883,9 @@ function wireSeqDiagramInteraction(r: SequenceDiagramRenderer, sd: SequenceDiagr
   r.el.addEventListener('mousedown', e => {
     if (connect.isConnecting) return
     if (toolbar.activeTool === 'pan') return
+    // Close any open message or lifeline property popovers when clicking inside the seq-diagram
+    hideMsgPopover()
+    hideElementPropertiesPanel()
     // Message-row interactions already stopped propagation, so this only fires for container drag
     const row = (e.target as Element).closest<SVGElement>('.seq-msg-row')
     if (row) return
@@ -951,6 +953,38 @@ function wireSeqDiagramInteraction(r: SequenceDiagramRenderer, sd: SequenceDiagr
         removeSeqMessage(sd.id, llId, msgIdx)
       },
       () => {},
+    )
+  })
+
+  // Lifeline header click → show accent-color properties panel
+  r.el.addEventListener('click', e => {
+    const header = (e.target as Element).closest<SVGElement>('.seq-header-bg')
+    if (!header) return
+    const llGroup = header.closest<SVGElement>('.seq-lifeline')
+    if (!llGroup?.dataset.id) return
+    const llId = llGroup.dataset.id
+    e.stopPropagation()
+
+    const currentSd = store.state.sequenceDiagrams.find(s => s.id === sd.id)
+    const ll = currentSd?.lifelines.find(l => l.id === llId)
+    if (!currentSd || !ll) return
+
+    const svgRect = svg.getBoundingClientRect()
+    const vp = store.state.viewport
+    const HEADER_H = 40
+    const absX = sd.position.x + ll.position.x
+    const screenX = svgRect.left + (absX + ll.size.w) * vp.zoom + vp.x + 8
+    const screenY = svgRect.top  + (sd.position.y + ll.position.y + HEADER_H / 2) * vp.zoom + vp.y
+
+    showElementPropertiesPanel(
+      screenX,
+      screenY,
+      undefined,
+      () => {},
+      undefined,
+      undefined,
+      ll.accentColor,
+      (color) => store.updateLifeline(sd.id, llId, { accentColor: color }),
     )
   })
 
@@ -1316,10 +1350,15 @@ function getRenderedSizeFor(id: string, found: { el: AnyElement; type: string })
 /** Update helper keyed by element kind, used by both single and bulk selection panels. */
 type PatchFn = (patch: { multiInstance?: boolean; flowReversed?: boolean; accentColor?: string | undefined }) => void
 const ELEMENT_UPDATE_FNS: Partial<Record<ElementKind, (id: string) => PatchFn>> = {
-  'class':   id => p => store.updateClass(id, p),
-  'storage': id => p => store.updateStorage(id, p),
-  'actor':   id => p => store.updateActor(id, p),
-  'queue':   id => p => store.updateQueue(id, p),
+  'class':        id => p => store.updateClass(id, p),
+  'storage':      id => p => store.updateStorage(id, p),
+  'actor':        id => p => store.updateActor(id, p),
+  'queue':        id => p => store.updateQueue(id, p),
+  'package':      id => p => store.updatePackage(id, p),
+  'use-case':     id => p => store.updateUseCase(id, p),
+  'uc-system':    id => p => store.updateUCSystem(id, p),
+  'state':        id => p => store.updateState(id, p),
+  'seq-fragment': id => p => store.updateCombinedFragment(id, p),
 }
 
 function showPropertiesForSelection() {
@@ -1378,9 +1417,9 @@ function showPropertiesForSelection() {
       hideElementPropertiesPanel()
       hideBulkConnectionPanel()
 
-      const elemItems: Array<{ id: string; kind: string; multiInstance: boolean; supportsProperties: boolean }> = []
+      const elemItems: Array<{ id: string; kind: string; multiInstance: boolean; supportsProperties: boolean; accentColor?: string }> = []
       for (const item of items) {
-        const found = store.findAnyElement(item.id) as (ReturnType<typeof store.findAnyElement> & { multiInstance?: boolean }) | undefined
+        const found = store.findAnyElement(item.id) as (ReturnType<typeof store.findAnyElement> & { multiInstance?: boolean; accentColor?: string }) | undefined
         if (!found) continue
         const config = getElementConfig(found.elementType ?? item.kind)
         elemItems.push({
@@ -1388,13 +1427,11 @@ function showPropertiesForSelection() {
           kind: item.kind,
           multiInstance: (found as { multiInstance?: boolean }).multiInstance ?? false,
           supportsProperties: config?.supportsProperties ?? false,
+          accentColor: found.accentColor,
         })
       }
 
       if (elemItems.length < 2) { hideBulkElementPanel(); return }
-
-      const allSupport = elemItems.every(it => it.supportsProperties)
-      if (!allSupport) { hideBulkElementPanel(); return }
 
       const svgRect = svg.getBoundingClientRect()
       const screenX = svgRect.right - 20
@@ -1406,6 +1443,13 @@ function showPropertiesForSelection() {
           store.beginUndoGroup()
           for (const it of elemItems) {
             ELEMENT_UPDATE_FNS[it.kind as ElementKind]?.(it.id)?.({ multiInstance: val })
+          }
+          store.endUndoGroup()
+        },
+        (color) => {
+          store.beginUndoGroup()
+          for (const it of elemItems) {
+            ELEMENT_UPDATE_FNS[it.kind as ElementKind]?.(it.id)?.({ accentColor: color })
           }
           store.endUndoGroup()
         },
@@ -1436,7 +1480,7 @@ function showPropertiesForSelection() {
 
   const elPosition = found.position
   const elSize = found.size
-  const multiInstance = found.multiInstance ?? false
+  const multiInstance = 'multiInstance' in found ? (found.multiInstance ?? false) : undefined
   const flowReversed = found.flowReversed
   const accentColor = found.accentColor
 

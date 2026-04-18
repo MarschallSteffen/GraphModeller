@@ -2,11 +2,11 @@
  * FileMenu — title bar with a diagram title field and a File dropdown menu.
  *
  * Actions exposed:
- *   New        — resets the diagram (prompts for unsaved changes)
- *   Open       — loads a .json file via file picker
- *   Save       — opens a file handle (once) and writes; autosaves on every mutation
- *   Save As    — always opens the picker for a new file
- *   Export PNG — rasterises the SVG to a transparent-background PNG
+ *   New          — resets the diagram (prompts for unsaved changes)
+ *   Open         — loads a .json file via file picker
+ *   Save         — opens a file handle (once) and writes; autosaves on every mutation
+ *   Save As      — always opens the picker for a new file
+ *   Export SVG   — serialises the live SVG to a self-contained .svg file
  */
 
 import { registerMenu, closeAllMenus } from './menuRegistry.ts'
@@ -16,6 +16,7 @@ export interface FileMenuCallbacks {
   onOpen:           () => void
   onSave:           () => void
   onSaveAs:         () => void
+  onExportSvg:      () => void
   onTitleChange:    (title: string) => void
 }
 
@@ -51,6 +52,8 @@ export class FileMenu {
       'separator',
       { label: 'Save',          shortcut: '⌘⇧S',  action: callbacks.onSave },
       { label: 'Save As…',      shortcut: '⌘⇧⌥S', action: callbacks.onSaveAs },
+      'separator',
+      { label: 'Export as SVG…',                   action: callbacks.onExportSvg },
     ]
 
     for (const item of items) {

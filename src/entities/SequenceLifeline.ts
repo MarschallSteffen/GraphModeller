@@ -21,6 +21,7 @@ export interface SequenceLifeline {
   messages: SequenceMessage[]
   position: Point
   size: Size
+  accentColor?: string
 }
 
 export function createSequenceLifeline(x: number, y: number): SequenceLifeline {

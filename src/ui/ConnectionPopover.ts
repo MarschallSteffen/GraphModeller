@@ -2,10 +2,10 @@ import type { ConnectionType, Multiplicity, ElbowMode } from '../entities/Connec
 import type { ElementConfig } from '../config/ElementConfig.ts'
 import { svgIcon as S } from './svgIcon.ts'
 
-const MULTIPLICITIES: Multiplicity[] = ['', '1', '0..1', '*', '1..*', '0..*']
+export const MULTIPLICITIES: Multiplicity[] = ['', '1', '0..1', '*', '1..*', '0..*']
 
 // All connection type icons in display order
-const ALL_TYPE_ICONS: Array<{ type: ConnectionType; icon: string; label: string }> = [
+export const ALL_TYPE_ICONS: Array<{ type: ConnectionType; icon: string; label: string }> = [
   { type: 'plain',             icon: S('<line x1="1" y1="8" x2="15" y2="8"/>'),                                                        label: 'Plain line' },
   { type: 'association',       icon: S('<line x1="1" y1="8" x2="13" y2="8"/><path d="M10 5l3 3-3 3"/>'),                                label: 'Association' },
   { type: 'dependency',        icon: S('<line x1="1" y1="8" x2="13" y2="8" stroke-dasharray="2 2"/><path d="M10 5l3 3-3 3"/>'),         label: 'Dependency' },
