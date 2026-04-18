@@ -74,6 +74,7 @@ import type { ElbowMode } from './entities/Connection.ts'
 import { deconflict, type LabelBox } from './renderers/LabelDeconflictLayer.ts'
 import { estimateTextWidth } from './renderers/svgUtils.ts'
 import { elementShape, shapedBorderDist } from './geometry/shapeGeometry.ts'
+import { Clipboard } from './interaction/Clipboard.ts'
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
@@ -90,6 +91,7 @@ injectMarkerDefs(svg)
 const diagram = loadDiagram()
 const store = new DiagramStore(diagram ?? undefined)
 const selection = new SelectionManager()
+let clipboardManager = null as unknown as Clipboard
 const toolbar = new Toolbar(document.getElementById('toolbar')!)
 const inlineEditor = new InlineEditor()
 
@@ -208,7 +210,7 @@ const editMenu = new EditMenu(editMenuAnchor, {
 
 function updateEditMenu() {
   editMenu.setHistoryState(store.canUndo, store.canRedo)
-  editMenu.setClipboardState(selection.items.length > 0, clipboard.length > 0)
+  editMenu.setClipboardState(selection.items.length > 0, clipboardManager.hasContent)
 }
 
 store.on(ev => { if (ev.type === 'history:change') updateEditMenu() })
@@ -437,6 +439,14 @@ function initElementDescriptors() {
   ]
 }
 initElementDescriptors()
+
+clipboardManager = new Clipboard({
+  store, selection,
+  elements: ELEMENTS,
+  onAfterCopy: updateEditMenu,
+})
+function doCopy() { clipboardManager.copy() }
+function doPaste() { clipboardManager.paste() }
 
 const searchPanel = createSearchPanel(store, selection, () => svg, applyViewport, ELEMENTS)
 
@@ -1579,91 +1589,6 @@ document.addEventListener('keydown', e => {
 })
 
 // ─── Copy / Paste ─────────────────────────────────────────────────────────────
-
-type ClipboardEntry =
-  | { kind: 'class';       data: UmlClass }
-  | { kind: 'package';     data: UmlPackage }
-  | { kind: 'storage';     data: Storage }
-  | { kind: 'actor';       data: Actor }
-  | { kind: 'queue';       data: Queue }
-  | { kind: 'use-case';    data: UseCase }
-  | { kind: 'uc-system';   data: UCSystem }
-  | { kind: 'state';       data: State }
-  | { kind: 'start-state'; data: StartState }
-  | { kind: 'end-state';   data: EndState }
-  | { kind: 'seq-diagram';  data: SequenceDiagram }
-  | { kind: 'seq-fragment'; data: CombinedFragment }
-  | { kind: 'comment';      data: Comment }
-
-// Simple clipboard — array of deep-cloned entity snapshots + connections between them
-let clipboard: ClipboardEntry[] = []
-let clipboardConnections: Connection[] = []
-
-const PASTE_OFFSET = 20
-
-function doCopy() {
-  const d = store.state
-  clipboard = []
-  clipboardConnections = []
-  const selectedIds = new Set(selection.items.map(i => i.id))
-  for (const item of selection.items) {
-    const desc = ELEMENTS.find(d => d.kind === item.kind)
-    if (!desc) continue
-    const items = (d[desc.collection] as Array<{ id: string }>) ?? []
-    const el = items.find(e => e.id === item.id)
-    if (el) clipboard.push({ kind: desc.kind, data: JSON.parse(JSON.stringify(el)) } as ClipboardEntry)
-  }
-  // Include connections where both endpoints are selected
-  for (const conn of d.connections) {
-    if (selectedIds.has(conn.source.elementId) && selectedIds.has(conn.target.elementId)) {
-      clipboardConnections.push(JSON.parse(JSON.stringify(conn)))
-    }
-  }
-  updateEditMenu()
-}
-
-function doPaste() {
-  if (clipboard.length === 0) return
-  selection.clear()
-  // Map old id → new id for remapping connections
-  const idMap = new Map<string, string>()
-  for (const entry of clipboard) {
-    const newId = crypto.randomUUID()
-    idMap.set(entry.data.id, newId)
-    const pos = {
-      x: entry.data.position.x + PASTE_OFFSET,
-      y: entry.data.position.y + PASTE_OFFSET,
-    }
-    const desc = ELEMENTS.find(d => d.kind === entry.kind)
-    if (desc) {
-      // Remap pinnedTo if the pinned target was also copied
-      const pinnedTo = (entry.data as { pinnedTo?: string }).pinnedTo
-      const remappedPinnedTo = pinnedTo ? (idMap.get(pinnedTo) ?? null) : null
-      const pinnedOffset = remappedPinnedTo ? (entry.data as { pinnedOffset?: unknown }).pinnedOffset : null
-      const copy = { ...entry.data, id: newId, position: pos, ...(entry.kind === 'comment' ? { pinnedTo: remappedPinnedTo, pinnedOffset } : {}) }
-      desc.add(copy)
-      selection.select({ kind: desc.kind, id: newId }, true)
-    }
-  }
-  // Paste connections with remapped endpoints
-  for (const conn of clipboardConnections) {
-    const newSrc = idMap.get(conn.source.elementId)
-    const newTgt = idMap.get(conn.target.elementId)
-    if (newSrc && newTgt) {
-      store.addConnection({
-        ...conn,
-        id: crypto.randomUUID(),
-        source: { ...conn.source, elementId: newSrc },
-        target: { ...conn.target, elementId: newTgt },
-      })
-    }
-  }
-  // Shift clipboard so repeated pastes cascade rather than stack
-  clipboard = clipboard.map(entry => ({
-    ...entry,
-    data: { ...entry.data, position: { x: entry.data.position.x + PASTE_OFFSET, y: entry.data.position.y + PASTE_OFFSET } },
-  })) as typeof clipboard
-}
 
 document.addEventListener('keydown', e => {
   // Skip when typing in an input / textarea
