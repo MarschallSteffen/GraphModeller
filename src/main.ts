@@ -31,13 +31,8 @@ import { saveHandle, loadHandle } from './serialization/fileHandleStore.ts'
 import { Dashboard, addRecentFile, getRecentFiles, injectPersistence, injectHandleStore, injectThumbnailCache, injectReadDiagramJson, injectAcquireWriteHandle } from './ui/Dashboard.ts'
 import { showConnectionPopover } from './ui/ConnectionPopover.ts'
 import { hideMsgPopover } from './ui/MessagePopover.ts'
-import { showElementPropertiesPanel, hideElementPropertiesPanel } from './ui/ElementPropertiesPanel.ts'
-import {
-  showBulkElementPanel, hideBulkElementPanel,
-  showBulkConnectionPanel, hideBulkConnectionPanel,
-  hideAllBulkPanels,
-  type BulkConnectionItem,
-} from './ui/BulkPropertiesPanel.ts'
+import { hideElementPropertiesPanel } from './ui/ElementPropertiesPanel.ts'
+import { PropertiesOrchestrator, type PatchFn } from './ui/PropertiesOrchestrator.ts'
 import { AlignmentToolbar } from './ui/AlignmentToolbar.ts'
 import { createSearchPanel } from './ui/SearchPanel.ts'
 import { toggleHelpModal } from './ui/HelpModal.ts'
@@ -951,164 +946,22 @@ function getRenderedSizeFor(id: string, found: { el: AnyElement; type: string })
 
 // ─── Properties panel helper ──────────────────────────────────────────────────
 
-/** Update helper keyed by element kind, used by both single and bulk selection panels. */
-type PatchFn = (patch: { multiInstance?: boolean; flowReversed?: boolean; accentColor?: string | undefined }) => void
-const ELEMENT_UPDATE_FNS: Partial<Record<ElementKind, (id: string) => PatchFn>> = {
-  'class':        id => p => store.updateClass(id, p),
-  'storage':      id => p => store.updateStorage(id, p),
-  'actor':        id => p => store.updateActor(id, p),
-  'queue':        id => p => store.updateQueue(id, p),
-  'package':      id => p => store.updatePackage(id, p),
-  'use-case':     id => p => store.updateUseCase(id, p),
-  'uc-system':    id => p => store.updateUCSystem(id, p),
-  'state':        id => p => store.updateState(id, p),
-  'seq-fragment': id => p => store.updateCombinedFragment(id, p),
-}
+const propsOrch = new PropertiesOrchestrator({
+  store, selection, svg,
+  updateFns: {
+    'class':        id => p => store.updateClass(id, p),
+    'storage':      id => p => store.updateStorage(id, p),
+    'actor':        id => p => store.updateActor(id, p),
+    'queue':        id => p => store.updateQueue(id, p),
+    'package':      id => p => store.updatePackage(id, p),
+    'use-case':     id => p => store.updateUseCase(id, p),
+    'uc-system':    id => p => store.updateUCSystem(id, p),
+    'state':        id => p => store.updateState(id, p),
+    'seq-fragment': id => p => store.updateCombinedFragment(id, p),
+  } satisfies Partial<Record<ElementKind, (id: string) => PatchFn>>,
+})
 
-function showPropertiesForSelection() {
-  const items = selection.items
-
-  // ── Multi-selection: 2+ items ────────────────────────────────────────────
-  if (items.length >= 2) {
-    const allConnections = items.every(it => it.kind === 'connection')
-    const noConnections  = items.every(it => it.kind !== 'connection')
-
-    if (allConnections) {
-      hideElementPropertiesPanel()
-      hideBulkElementPanel()
-
-      const connItems: BulkConnectionItem[] = []
-      for (const item of items) {
-        const conn = store.state.connections.find(c => c.id === item.id)
-        if (!conn) continue
-        const srcEl = store.findAnyElement(conn.source.elementId)
-        const tgtEl = store.findAnyElement(conn.target.elementId)
-        const srcConfig = getElementConfig(srcEl?.elementType ?? '')
-        const tgtConfig = getElementConfig(tgtEl?.elementType ?? '')
-        connItems.push({
-          id: conn.id,
-          type: conn.type,
-          sourceMultiplicity: conn.sourceMultiplicity,
-          targetMultiplicity: conn.targetMultiplicity,
-          srcConfig,
-          tgtConfig,
-        })
-      }
-
-      if (connItems.length < 2) { hideBulkConnectionPanel(); return }
-
-      const svgRect = svg.getBoundingClientRect()
-      const screenX = svgRect.right - 20
-      const screenY = svgRect.top + 80
-
-      showBulkConnectionPanel(
-        screenX, screenY, connItems,
-        (type) => {
-          store.beginUndoGroup()
-          for (const c of connItems) store.updateConnection(c.id, { type })
-          store.endUndoGroup()
-        },
-        (srcMult, tgtMult) => {
-          store.beginUndoGroup()
-          for (const c of connItems) store.updateConnection(c.id, { sourceMultiplicity: srcMult, targetMultiplicity: tgtMult })
-          store.endUndoGroup()
-        },
-      )
-      return
-    }
-
-    if (noConnections) {
-      hideElementPropertiesPanel()
-      hideBulkConnectionPanel()
-
-      const elemItems: Array<{ id: string; kind: string; multiInstance: boolean; supportsProperties: boolean; accentColor?: string }> = []
-      for (const item of items) {
-        const found = store.findAnyElement(item.id) as (ReturnType<typeof store.findAnyElement> & { multiInstance?: boolean; accentColor?: string }) | undefined
-        if (!found) continue
-        const config = getElementConfig(found.elementType ?? item.kind)
-        elemItems.push({
-          id: item.id,
-          kind: item.kind,
-          multiInstance: (found as { multiInstance?: boolean }).multiInstance ?? false,
-          supportsProperties: config?.supportsProperties ?? false,
-          accentColor: found.accentColor,
-        })
-      }
-
-      if (elemItems.length < 2) { hideBulkElementPanel(); return }
-
-      const svgRect = svg.getBoundingClientRect()
-      const screenX = svgRect.right - 20
-      const screenY = svgRect.top + 80
-
-      showBulkElementPanel(
-        screenX, screenY, elemItems,
-        (val) => {
-          store.beginUndoGroup()
-          for (const it of elemItems) {
-            ELEMENT_UPDATE_FNS[it.kind as ElementKind]?.(it.id)?.({ multiInstance: val })
-          }
-          store.endUndoGroup()
-        },
-        (color) => {
-          store.beginUndoGroup()
-          for (const it of elemItems) {
-            ELEMENT_UPDATE_FNS[it.kind as ElementKind]?.(it.id)?.({ accentColor: color })
-          }
-          store.endUndoGroup()
-        },
-      )
-      return
-    }
-
-    // Mixed selection (elements + connections): hide all panels
-    hideElementPropertiesPanel()
-    hideAllBulkPanels()
-    return
-  }
-
-  // ── Single selection ─────────────────────────────────────────────────────
-  hideAllBulkPanels()
-  if (items.length !== 1) { hideElementPropertiesPanel(); return }
-
-  const item = items[0]
-
-  const found = store.findAnyElement(item.id) as (ReturnType<typeof store.findAnyElement> & { multiInstance?: boolean; flowReversed?: boolean; accentColor?: string }) | undefined
-  if (!found) { hideElementPropertiesPanel(); return }
-
-  // Use elementType (e.g. 'agent', 'human-agent') not kind (e.g. 'actor') because
-  // multiple elementTypes share one ELEMENTS kind entry ('actor').
-  if (!getElementConfig(found.elementType ?? item.kind)?.supportsProperties) {
-    hideElementPropertiesPanel(); return
-  }
-
-  const elPosition = found.position
-  const elSize = found.size
-  const multiInstance = 'multiInstance' in found ? (found.multiInstance ?? false) : undefined
-  const flowReversed = found.flowReversed
-  const accentColor = found.accentColor
-
-  const updateFn = ELEMENT_UPDATE_FNS[item.kind as ElementKind]?.(item.id)
-  if (!updateFn) { hideElementPropertiesPanel(); return }
-
-  const d = store.state
-  const svgRect = svg.getBoundingClientRect()
-  const vp = d.viewport
-  const screenX = svgRect.left + (elPosition.x + elSize.w) * vp.zoom + vp.x + 8
-  const screenY = svgRect.top  + (elPosition.y + elSize.h / 2) * vp.zoom + vp.y
-
-  const isQueue = item.kind === 'queue'
-  showElementPropertiesPanel(
-    screenX,
-    screenY,
-    multiInstance,
-    (val) => updateFn({ multiInstance: val }),
-    isQueue ? (flowReversed ?? false) : undefined,
-    isQueue ? (reversed) => updateFn({ flowReversed: reversed }) : undefined,
-    accentColor,
-    (color) => updateFn({ accentColor: color }),
-  )
-}
+function showPropertiesForSelection() { propsOrch.show() }
 
 // ─── Element interaction wiring ───────────────────────────────────────────────
 
