@@ -18,13 +18,11 @@ import type { Connection, ConnectionType, ElbowMode, Multiplicity } from '../ent
 import { parseAttribute, serializeAttribute } from '../entities/Attribute.ts'
 import { parseMethod, serializeMethod } from '../entities/Method.ts'
 import { getElementConfig } from '../config/registry.ts'
-import { injectPngiTxt, extractPngiTxt } from './png-chunks.ts'
+import { extractPngiTxt } from './png-chunks.ts'
 import { getExportBounds, prepareSvgForExport, collectStyles } from './svg-export.ts'
 export { getExportBounds, prepareSvgForExport, collectStyles } from './svg-export.ts'
 import {
   setActiveThumbnailId as _setActiveThumbnailId,
-  getActiveThumbnailId,
-  cacheThumbnail,
 } from './ThumbnailCache.ts'
 import {
   schedulePngWrite as _schedulePngWrite,
@@ -40,26 +38,24 @@ export { onPngSaveError, onPngSaveRecovered } from './PngAutosave.ts'
 
 const LS_JSON = 'archetype:diagram'
 
-/** Active file handle for continuous autosave as .arch.png. Null = no file open. */
+/** Active file handle for continuous autosave as .arch.svg. Null = no file open. */
 let activeFileHandle: FileSystemFileHandle | null = null
 
 export function getActiveFileName(): string | null {
   return activeFileHandle?.name ?? null
 }
 
-/** Save to localStorage (and autosave to active .arch.png handle if open). */
+/** Save to localStorage (and autosave to active .arch.svg handle if open). */
 export function saveDiagram(diagram: Diagram) {
   localStorage.setItem(LS_JSON, JSON.stringify(serializeDiagramV2(diagram), null, 2))
-  if (activeFileHandle) _schedulePngWrite(diagram, _doPngWrite)
+  if (activeFileHandle) _schedulePngWrite(diagram, _doSvgWrite)
 }
 
-async function _doPngWrite(snapshot: Diagram): Promise<void> {
-  const bytes = await buildArchPngBytes(snapshot)
-  // Cache thumbnail regardless of whether the file write succeeds.
-  cacheThumbnail(getActiveThumbnailId(), bytes)
+async function _doSvgWrite(snapshot: Diagram): Promise<void> {
+  const svgStr = buildArchSvgString(snapshot)
   if (activeFileHandle) {
     const w = await activeFileHandle.createWritable()
-    await w.write(bytes.buffer as ArrayBuffer)
+    await w.write(svgStr)
     await w.close()
   }
 }
@@ -78,7 +74,7 @@ export function setActiveFileHandle(handle: FileSystemFileHandle | null) {
 }
 
 /**
- * Open the native Save File picker for a .arch.png, store the handle, and write immediately.
+ * Open the native Save File picker for a .arch.svg, store the handle, and write immediately.
  * Subsequent calls to `saveDiagram` will autosave to this file.
  * Pass `forceNew = true` to always show the picker (Save As behaviour).
  *
@@ -88,20 +84,19 @@ export function setActiveFileHandle(handle: FileSystemFileHandle | null) {
  */
 export async function openAndSaveToFile(
   diagram: Diagram,
-  suggestedName = 'diagram.arch.png',
+  suggestedName = 'diagram.arch.svg',
   forceNew = false,
 ): Promise<FileSystemFileHandle | null | true> {
-  const bytes = await buildArchPngBytes(diagram)
+  const svgStr = buildArchSvgString(diagram)
+  const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' })
   if (!('showSaveFilePicker' in window)) {
-    triggerDownload(new Blob([bytes.buffer as ArrayBuffer], { type: 'image/png' }), suggestedName)
-    cacheThumbnail(diagram.id, bytes)
+    triggerDownload(blob, suggestedName)
     return true
   }
   if (activeFileHandle && !forceNew) {
     const w = await activeFileHandle.createWritable()
-    await w.write(bytes.buffer as ArrayBuffer)
+    await w.write(svgStr)
     await w.close()
-    cacheThumbnail(diagram.id, bytes)
     return true
   }
   try {
@@ -109,62 +104,89 @@ export async function openAndSaveToFile(
       showSaveFilePicker: (opts?: unknown) => Promise<FileSystemFileHandle>
     }).showSaveFilePicker({
       suggestedName,
-      types: [{ description: 'Archetype diagram', accept: { 'image/png': ['.png'] } }],
+      types: [{ description: 'Archetype diagram', accept: { 'image/svg+xml': ['.svg'] } }],
     })
     activeFileHandle = handle
     resetPngAutosave()
     const w = await handle.createWritable()
-    await w.write(bytes.buffer as ArrayBuffer)
+    await w.write(svgStr)
     await w.close()
-    cacheThumbnail(diagram.id, bytes)
-    return handle  // caller should persist this handle
+    return handle
   } catch (err: unknown) {
     if (err instanceof DOMException && err.name === 'AbortError') return null
     throw err
   }
 }
 
-// ─── .arch.png — PNG with embedded diagram JSON ──────────────────────────────
+// ─── .arch.svg — SVG with embedded diagram JSON ──────────────────────────────
 
 const ARCH_KEYWORD = 'archetype-diagram'
+const ARCH_META_TAG = 'archetype:diagram'
+
+/**
+ * Build a self-contained .arch.svg string: the rendered SVG with diagram JSON
+ * embedded inside a <metadata> element.
+ */
+function buildArchSvgString(diagram: Diagram): string {
+  const jsonStr = JSON.stringify(serializeDiagramV2(diagram))
+  const bounds = getExportBounds()
+  if (!bounds) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><metadata><${ARCH_META_TAG}>${escapeXml(jsonStr)}</${ARCH_META_TAG}></metadata></svg>`
+  }
+  const { svgEl, contentW, contentH, offsetX, offsetY } = bounds
+  const prepared = prepareSvgForExport(svgEl, contentW, contentH, offsetX, offsetY)
+  // Inject JSON into a <metadata> child
+  const meta = document.createElementNS('http://www.w3.org/2000/svg', 'metadata')
+  const inner = document.createElement(ARCH_META_TAG)
+  inner.textContent = jsonStr
+  meta.appendChild(inner)
+  prepared.insertBefore(meta, prepared.firstChild)
+  return new XMLSerializer().serializeToString(prepared)
+}
+
+function escapeXml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
 
 /**
  * Read diagram JSON from a FileSystemFileHandle.
- * Handles both .arch.png (extracts embedded iTXt) and .json files.
+ * Handles .arch.svg (extracts embedded metadata), legacy .arch.png, and .json files.
  * Returns the raw JSON string, or null if the file is not a valid diagram.
  */
 export async function readDiagramJsonFromHandle(
   handle: FileSystemFileHandle,
 ): Promise<string | null> {
   const file = await handle.getFile()
+  if (file.name.endsWith('.arch.svg') || file.name.endsWith('.svg')) {
+    const text = await file.text()
+    return extractSvgMetadataJson(text)
+  }
   if (file.name.endsWith('.arch.png') || file.name.endsWith('.png')) {
-    const buf  = await file.arrayBuffer()
+    const buf = await file.arrayBuffer()
     return extractPngiTxt(new Uint8Array(buf), ARCH_KEYWORD)
   }
   return file.text()
 }
 
+function extractSvgMetadataJson(svgText: string): string | null {
+  const match = svgText.match(new RegExp(`<${ARCH_META_TAG}[^>]*>([\\s\\S]*?)<\\/${ARCH_META_TAG}>`))
+  if (!match) return null
+  // Unescape XML entities
+  return match[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+}
+
+// ─── PNG render (for export only) ────────────────────────────────────────────
+
 /**
- * Render the diagram SVG to a PNG and inject the diagram JSON as an iTXt chunk.
- * Returns the raw bytes — used by both save-to-file and download flows.
+ * Render the current diagram SVG to a PNG blob. Used by exportDiagramToPng.
  */
-async function buildArchPngBytes(diagram: Diagram): Promise<Uint8Array> {
+async function buildPngBlob(): Promise<Blob | null> {
   // If there's no SVG context (called from autosave before first render), skip rendering.
   // We only get here via saveDiagram which always has a live SVG, so this is safe.
-  if (!document.querySelector('#canvas')) throw new Error('SVG not ready')
+  if (!document.querySelector('#canvas')) return null
 
   const bounds = getExportBounds()
-  if (!bounds) {
-    // Empty diagram — return a 1×1 transparent PNG with the JSON
-    const tiny = new Uint8Array([
-      137,80,78,71,13,10,26,10, // PNG signature
-      0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,2,0,0,0,144,119,83,222, // IHDR
-      0,0,0,12,73,68,65,84,8,215,99,248,207,192,0,0,0,2,0,1,231,21,33,69, // IDAT
-      0,0,0,0,73,69,78,68,174,66,96,130, // IEND
-    ])
-    const jsonStr = JSON.stringify(serializeDiagramV2(diagram))
-    return injectPngiTxt(tiny, ARCH_KEYWORD, jsonStr)
-  }
+  if (!bounds) return null
 
   const { svgEl, contentW, contentH, offsetX, offsetY } = bounds
   const clonedSvg = prepareSvgForExport(svgEl, contentW, contentH, offsetX, offsetY)
@@ -188,45 +210,18 @@ async function buildArchPngBytes(diagram: Diagram): Promise<Uint8Array> {
   })
   URL.revokeObjectURL(svgUrl)
 
-  const pngBlob: Blob = await new Promise((resolve, reject) => {
+  return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(b => b ? resolve(b) : reject(new Error('toBlob failed')), 'image/png')
   })
-
-  const pngBytes = new Uint8Array(await pngBlob.arrayBuffer())
-  const jsonStr  = JSON.stringify(serializeDiagramV2(diagram))
-  return injectPngiTxt(pngBytes, ARCH_KEYWORD, jsonStr)
 }
 
 /**
- * Download the diagram as a `.arch.png` (PNG + embedded JSON).
+ * Download the current diagram as a plain `.png` file.
  */
-export async function exportDiagramToArchPng(
-  _svgEl: SVGSVGElement,
-  _viewGroup: SVGGElement,
-  diagram: Diagram,
-  filename = 'diagram',
-): Promise<void> {
-  const bytes = await buildArchPngBytes(diagram)
-  triggerDownload(new Blob([bytes.buffer as ArrayBuffer], { type: 'image/png' }), `${filename}.arch.png`)
-}
-
-/**
- * Download the current diagram as a plain `.svg` file.
- * The SVG is self-contained: CSS styles and theme variables are inlined,
- * and <foreignObject> nodes are converted to <text>/<tspan>.
- */
-export function exportDiagramToSvg(filename = 'diagram'): void {
-  const bounds = getExportBounds()
-  if (!bounds) {
-    // Empty diagram — output a minimal valid SVG
-    const emptySvg = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>'
-    triggerDownload(new Blob([emptySvg], { type: 'image/svg+xml;charset=utf-8' }), `${filename}.svg`)
-    return
-  }
-  const { svgEl, contentW, contentH, offsetX, offsetY } = bounds
-  const prepared = prepareSvgForExport(svgEl, contentW, contentH, offsetX, offsetY)
-  const svgString = new XMLSerializer().serializeToString(prepared)
-  triggerDownload(new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' }), `${filename}.svg`)
+export async function exportDiagramToPng(filename = 'diagram'): Promise<void> {
+  const blob = await buildPngBlob()
+  if (!blob) return
+  triggerDownload(blob, `${filename}.png`)
 }
 
 /**
@@ -337,7 +332,7 @@ export async function loadDiagramFromFile(
         showOpenFilePicker: (opts?: unknown) => Promise<FileSystemFileHandle[]>
       }).showOpenFilePicker({
         types: [
-          { description: 'Diagram files', accept: { 'application/json': ['.json'], 'image/png': ['.png'] } },
+          { description: 'Diagram files', accept: { 'application/json': ['.json'], 'image/svg+xml': ['.svg'], 'image/png': ['.png'] } },
         ],
         multiple: false,
       })
@@ -349,7 +344,14 @@ export async function loadDiagramFromFile(
       const writeHandle = await acquireWriteHandle(handle)
 
       const file = await handle.getFile()
-      if (file.name.endsWith('.arch.png') || file.name.endsWith('.png')) {
+      if (file.name.endsWith('.arch.svg') || file.name.endsWith('.svg')) {
+        const text = await file.text()
+        const json = extractSvgMetadataJson(text)
+        if (!json) { alert('This SVG does not contain an embedded diagram.'); return }
+        const raw = JSON.parse(json)
+        activeFileHandle = writeHandle
+        onLoad(deserializeV2(raw), handle, json)
+      } else if (file.name.endsWith('.arch.png') || file.name.endsWith('.png')) {
         const buf  = await file.arrayBuffer()
         const json = extractPngiTxt(new Uint8Array(buf), ARCH_KEYWORD)
         if (!json) { alert('This PNG does not contain an embedded diagram.'); return }
@@ -375,11 +377,24 @@ export async function loadDiagramFromFile(
   // Fallback: <input type="file"> — no writable handle
   const input = document.createElement('input')
   input.type = 'file'
-  input.accept = '.json,application/json,.arch.png,.png,image/png'
+  input.accept = '.json,application/json,.arch.svg,.svg,image/svg+xml,.arch.png,.png,image/png'
   input.addEventListener('change', () => {
     const file = input.files?.[0]
     if (!file) return
-    if (file.name.endsWith('.arch.png') || file.name.endsWith('.png')) {
+    if (file.name.endsWith('.arch.svg') || file.name.endsWith('.svg')) {
+      const reader = new FileReader()
+      reader.onload = () => {
+        try {
+          const text = reader.result as string
+          const json = extractSvgMetadataJson(text)
+          if (!json) { alert('This SVG does not contain an embedded diagram.'); return }
+          onLoad(deserializeV2(JSON.parse(json)), null, json)
+        } catch {
+          alert('Could not read diagram from SVG.')
+        }
+      }
+      reader.readAsText(file)
+    } else if (file.name.endsWith('.arch.png') || file.name.endsWith('.png')) {
       const reader = new FileReader()
       reader.onload = () => {
         try {

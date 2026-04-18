@@ -1,6 +1,6 @@
 import { DiagramStore } from './store/DiagramStore.ts'
 import { loadSavedTheme } from './themes/catppuccin.ts'
-import { loadDiagram, saveDiagram, openAndSaveToFile, closeActiveFile, setActiveFileHandle, setActiveThumbnailId, getThumbnailDataUrl, getActiveFileName, loadDiagramFromFile, serializeDiagramV2, deserializeV2, onPngSaveError, onPngSaveRecovered, acquireWriteHandle, readDiagramJsonFromHandle, exportDiagramToSvg } from './serialization/persistence.ts'
+import { loadDiagram, saveDiagram, openAndSaveToFile, closeActiveFile, setActiveFileHandle, setActiveThumbnailId, getThumbnailDataUrl, getActiveFileName, loadDiagramFromFile, serializeDiagramV2, deserializeV2, onPngSaveError, onPngSaveRecovered, acquireWriteHandle, readDiagramJsonFromHandle, exportDiagramToPng } from './serialization/persistence.ts'
 import { ClassRenderer } from './renderers/ClassRenderer.ts'
 import { PackageRenderer } from './renderers/PackageRenderer.ts'
 import { StorageRenderer } from './renderers/StorageRenderer.ts'
@@ -127,7 +127,7 @@ const fileMenuCallbacks = {
   onSave: () => {
     const d = store.state
     const name = fileMenu.getTitle() || 'diagram'
-    openAndSaveToFile(d, `${name}.arch.png`).then(result => {
+    openAndSaveToFile(d, `${name}.arch.svg`).then(result => {
       if (!result) return  // cancelled
       setActiveThumbnailId(d.id)
       fileMenu.setFileIndicator(getActiveFileName())
@@ -152,8 +152,8 @@ const fileMenuCallbacks = {
       }
     }).catch(console.error)
   },
-  onExportSvg: () => {
-    exportDiagramToSvg(fileMenu.getTitle() || 'diagram')
+  onExportPng: () => {
+    exportDiagramToPng(fileMenu.getTitle() || 'diagram')
   },
   onTitleChange: (title: string) => {
     store.updateDiagramName(title)

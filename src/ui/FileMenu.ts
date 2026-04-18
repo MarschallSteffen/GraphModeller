@@ -6,7 +6,7 @@
  *   Open         — loads a .json file via file picker
  *   Save         — opens a file handle (once) and writes; autosaves on every mutation
  *   Save As      — always opens the picker for a new file
- *   Export SVG   — serialises the live SVG to a self-contained .svg file
+ *   Export PNG   — renders the live SVG to a plain .png file
  */
 
 import { registerMenu, closeAllMenus } from './menuRegistry.ts'
@@ -16,7 +16,7 @@ export interface FileMenuCallbacks {
   onOpen:           () => void
   onSave:           () => void
   onSaveAs:         () => void
-  onExportSvg:      () => void
+  onExportPng:      () => void
   onTitleChange:    (title: string) => void
 }
 
@@ -53,7 +53,7 @@ export class FileMenu {
       { label: 'Save',          shortcut: '⌘⇧S',  action: callbacks.onSave },
       { label: 'Save As…',      shortcut: '⌘⇧⌥S', action: callbacks.onSaveAs },
       'separator',
-      { label: 'Export as SVG…',                   action: callbacks.onExportSvg },
+      { label: 'Export as PNG…',                   action: callbacks.onExportPng },
     ]
 
     for (const item of items) {
