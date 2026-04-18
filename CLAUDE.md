@@ -91,8 +91,13 @@ src/
     SequenceLifeline.ts # elementType: 'seq-lifeline' (nested in SequenceDiagram)
     CombinedFragment.ts # elementType: 'seq-fragment'
     Connection.ts    # source/target endpoints, type, multiplicities
+  geometry/
+    shapeGeometry.ts # Pure shape border math: elementShape, borderPointForShape, shapedBorderDist
   renderers/         # SVG renderers — one per entity type + routing.ts + svgUtils.ts
+    ConnectionRefresher.ts  # 4-pass connection routing engine; refresh() called via main.ts wrapper
   interaction/       # Drag, resize, connect, select, snap, inline-edit controllers
+    Clipboard.ts     # Copy/paste with ID remapping; doCopy/doPaste wrappers in main.ts
+    RubberBandSelector.ts  # Rubber-band selection state machine; start/onMouseMove/onMouseUp
   store/
     DiagramStore.ts  # Single state + mutation API + event bus; CRUD delegated to CollectionManagers
     CollectionManager.ts  # Generic CollectionManager<T> — add/update/remove/findById/getAll
@@ -107,7 +112,10 @@ src/
   ui/
     popover.ts       # createPopover() — shared dismiss-on-outside-click + Escape helper used by all popovers
     SequenceDiagramController.ts  # All seq-diagram wiring + rendering logic extracted from main.ts
+    PropertiesOrchestrator.ts  # Single + bulk properties panel logic; show() called via main.ts wrapper
     # also: Toolbar, ConnectionPopover, MessagePopover, ElementPropertiesPanel, BulkPropertiesPanel, FileMenu
+  interaction/
+    ViewportController.ts  # Pan/zoom state + applyViewport(); applyViewport wrapper in main.ts
   main.ts            # Entry point — ELEMENTS dispatch table, wiring, rendering
 ```
 

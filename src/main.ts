@@ -69,7 +69,9 @@ import { getElementConfig } from './config/registry.ts'
 import type { ElementKind } from './types.ts'
 import type { ElbowMode } from './entities/Connection.ts'
 import { elementShape, shapedBorderDist } from './geometry/shapeGeometry.ts'
+import { getAllElementRects as _getAllElementRects, getContainedElements as _getContainedElements, type LayoutElementDesc } from './geometry/elementLayout.ts'
 import { Clipboard } from './interaction/Clipboard.ts'
+import { RubberBandSelector } from './interaction/RubberBandSelector.ts'
 import { ConnectionRefresher } from './renderers/ConnectionRefresher.ts'
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
@@ -346,12 +348,6 @@ viewGroup.append(pkgLayer, storageLayer, actorLayer, queueLayer, ucLayer, stateL
 // Apply initial show-comments state (set before layers were declared)
 commentLayer.style.display = showComments ? '' : 'none'
 
-// Rubber-band selection rect — lives inside viewGroup so coords are in diagram space
-const rubberBandRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
-rubberBandRect.classList.add('rubber-band')
-rubberBandRect.style.display = 'none'
-viewGroup.appendChild(rubberBandRect)
-
 // Snap guide lines — rendered on top of everything else in diagram space
 const snapGuideGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g')
 snapGuideGroup.classList.add('snap-guides')
@@ -448,20 +444,14 @@ const searchPanel = createSearchPanel(store, selection, () => svg, applyViewport
 
 /** Get all elements as {kind, id, x, y, w, h} for rubber-band / hit-testing */
 function getAllElementRects() {
-  const d = store.state
-  return ELEMENTS.flatMap(desc => {
-    const items = (d[desc.collection] as Array<{ id: string; position: { x: number; y: number }; size: { w: number; h: number } }>) ?? []
-    return items.map(el => {
-      const rs = desc.renderers.get(el.id)?.getRenderedSize() ?? el.size
-      const isPill = elementShape(desc.kind as ElementKind) === 'pill'
-      return {
-        kind: desc.kind as ElementKind, id: el.id,
-        x: el.position.x, y: el.position.y, w: rs.w, h: rs.h,
-        ...(isPill ? { ewZone: rs.h / 2 } : {}),
-      }
-    })
-  })
+  return _getAllElementRects(store.state, ELEMENTS as LayoutElementDesc[])
 }
+
+// ─── Rubber-band selector ─────────────────────────────────────────────────────
+
+const rubberBand = new RubberBandSelector({ selection, getAllElementRects })
+// Insert before snap guide lines so it renders below the guides
+viewGroup.insertBefore(rubberBand.el, snapGuideGroup)
 
 // ─── SVG helper ───────────────────────────────────────────────────────────────
 
@@ -479,38 +469,7 @@ function getSvgPoint(e: MouseEvent): DOMPoint {
  * and combined fragments — all container-type elements.
  */
 function getContainedElements(containerId: string): Array<{ kind: ElementKind; id: string }> {
-  const d = store.state
-  // Find the container in any of the container collections
-  type Container = { id: string; position: { x: number; y: number }; size: { w: number; h: number } }
-  let container: Container | undefined
-  let renderedSize: { w: number; h: number } | undefined
-
-  container = d.packages.find(p => p.id === containerId)
-  if (container) renderedSize = pkgRenderers.get(containerId)?.getRenderedSize()
-
-  if (!container) {
-    container = d.ucSystems.find(u => u.id === containerId)
-    if (container) renderedSize = ucSystemRenderers.get(containerId)?.getRenderedSize()
-  }
-  if (!container) {
-    container = d.combinedFragments?.find(f => f.id === containerId)
-    if (container) renderedSize = seqFragmentRenderers.get(containerId)?.getRenderedSize()
-  }
-
-  if (!container) return []
-  const { w, h } = renderedSize ?? container.size
-  const { x, y } = container.position
-  const result: Array<{ kind: ElementKind; id: string }> = []
-  const inside = (el: { position: { x: number; y: number }; size: { w: number; h: number } }) => {
-    const cx = el.position.x + el.size.w / 2
-    const cy = el.position.y + el.size.h / 2
-    return cx > x && cx < x + w && cy > y && cy < y + h
-  }
-  for (const desc of ELEMENTS) {
-    const items = (d[desc.collection] as Array<{ id: string; position: { x: number; y: number }; size: { w: number; h: number } }>) ?? []
-    items.forEach(el => { if (inside(el)) result.push({ kind: desc.kind, id: el.id }) })
-  }
-  return result
+  return _getContainedElements(containerId, store.state, ELEMENTS as LayoutElementDesc[], pkgRenderers, ucSystemRenderers, seqFragmentRenderers)
 }
 
 const drag    = new DragController(store, getSvgPoint, getContainedElements, updateSnapGuides,
@@ -1276,9 +1235,6 @@ svg.addEventListener('dblclick', e => {
 
 // ─── Rubber-band selection ────────────────────────────────────────────────────
 
-let rubberBanding = false
-let rubberStart = { x: 0, y: 0 }
-
 svg.addEventListener('mousedown', e => {
   if (connect.isConnecting) return
   if (e.button !== 0) return
@@ -1299,13 +1255,7 @@ svg.addEventListener('mousedown', e => {
   // Only start rubber-band in select mode
   if (toolbar.activeTool !== 'select') return
   const pt = getSvgPoint(e)
-  rubberBanding = true
-  rubberStart = { x: pt.x, y: pt.y }
-  rubberBandRect.setAttribute('x', String(pt.x))
-  rubberBandRect.setAttribute('y', String(pt.y))
-  rubberBandRect.setAttribute('width', '0')
-  rubberBandRect.setAttribute('height', '0')
-  rubberBandRect.style.display = ''
+  rubberBand.start(pt)
   e.preventDefault()
 })
 
@@ -1318,22 +1268,12 @@ window.addEventListener('mousemove', e => {
   if (drag.isDragging)      drag.onMouseMove(e)
   if (resize.isResizing)    resize.onMouseMove(e)
   if (connect.isConnecting) connect.onMouseMove(e)
-  if (rubberBanding) {
-    const pt = getSvgPoint(e)
-    const rx = Math.min(pt.x, rubberStart.x)
-    const ry = Math.min(pt.y, rubberStart.y)
-    const rw = Math.abs(pt.x - rubberStart.x)
-    const rh = Math.abs(pt.y - rubberStart.y)
-    rubberBandRect.setAttribute('x', String(rx))
-    rubberBandRect.setAttribute('y', String(ry))
-    rubberBandRect.setAttribute('width', String(rw))
-    rubberBandRect.setAttribute('height', String(rh))
-  }
+  if (rubberBand.isActive)  rubberBand.onMouseMove(getSvgPoint(e))
 })
 
 // Update resize cursor based on hover position
 svg.addEventListener('mousemove', e => {
-  if (drag.isDragging || resize.isResizing || connect.isConnecting || rubberBanding) return
+  if (drag.isDragging || resize.isResizing || connect.isConnecting || rubberBand.isActive) return
 
   // Collect all element renderers so we can set cursor directly on each <g>
   // (CSS cursor:move on the element classes overrides svg.style.cursor)
@@ -1374,25 +1314,7 @@ window.addEventListener('mouseup', e => {
   }
   if (drag.isDragging)   { drag.onMouseUp(); return }
   if (resize.isResizing) { resize.onMouseUp(); return }
-  if (rubberBanding) {
-    rubberBanding = false
-    rubberBandRect.style.display = 'none'
-    const rx = parseFloat(rubberBandRect.getAttribute('x') ?? '0')
-    const ry = parseFloat(rubberBandRect.getAttribute('y') ?? '0')
-    const rw = parseFloat(rubberBandRect.getAttribute('width') ?? '0')
-    const rh = parseFloat(rubberBandRect.getAttribute('height') ?? '0')
-    // Only commit if the rect is large enough to be intentional (not a stray click)
-    if (rw > 4 || rh > 4) {
-      const allEls = getAllElementRects()
-      for (const el of allEls) {
-        // Select elements whose bounds overlap the rubber-band rect
-        if (el.x + el.w > rx && el.x < rx + rw && el.y + el.h > ry && el.y < ry + rh) {
-          selection.select({ kind: el.kind, id: el.id }, true)
-        }
-      }
-    }
-    return
-  }
+  if (rubberBand.isActive) { rubberBand.onMouseUp(); return }
   if (connect.isConnecting) {
     const target = e.target as Node
     const el = target instanceof Element ? target : null
