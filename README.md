@@ -25,7 +25,8 @@ A browser-only multi-diagram modeller built with Vite and vanilla TypeScript. No
 - Snap-to-grid guides
 - Auto-save to localStorage on every change
 - Save / Save As / Open via the File System Access API (where supported)
-- **`.arch.png` file format** — saves as a regular PNG you can view anywhere, with the full diagram JSON embedded as metadata; one file is both image and editable source
+- **`.arch.svg` file format** — saves as a regular svg you can view anywhere, with the full diagram JSON embedded as metadata; one file is both image and editable source. 
+  Easy to embed into markdown files/GitHub Wiki.
 - Catppuccin themes: Latte, Frappé, Macchiato, Mocha
 - AI prompt helper — one-click copy of a structured prompt to generate diagrams with any LLM
 
