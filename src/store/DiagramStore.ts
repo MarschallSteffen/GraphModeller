@@ -17,6 +17,7 @@ import type { CombinedFragment } from '../entities/CombinedFragment.ts'
 import type { Comment } from '../entities/Comment.ts'
 import type { ElementKind } from '../types.ts'
 import type { Point, Size } from '../entities/common.ts'
+import { CollectionManager } from './CollectionManager.ts'
 
 const KIND_TO_COLLECTION: Partial<Record<ElementKind, keyof Diagram>> = {
   'class':        'classes',
@@ -67,9 +68,73 @@ export class DiagramStore {
   private redoStack: Diagram[] = []
   private _undoGroupActive = false
 
+  // ── CollectionManagers ────────────────────────────────────────────────────
+
+  private _classes:     CollectionManager<UmlClass>
+  private _packages:    CollectionManager<UmlPackage>
+  private _storages:    CollectionManager<Storage>
+  private _actors:      CollectionManager<Actor>
+  private _queues:      CollectionManager<Queue>
+  private _useCases:    CollectionManager<UseCase>
+  private _ucSystems:   CollectionManager<UCSystem>
+  private _states:      CollectionManager<State>
+  private _startStates: CollectionManager<StartState>
+  private _endStates:   CollectionManager<EndState>
+  private _seqDiagrams: CollectionManager<SequenceDiagram>
+  private _fragments:   CollectionManager<CombinedFragment>
+  private _comments:    CollectionManager<Comment>
+  private _connections: CollectionManager<Connection>
+
+  // Ordered list used to rebind all managers after a diagram swap.
+  private readonly _allManagers: Array<{ mgr: CollectionManager<any>; field: keyof Diagram }>
+
   constructor(diagram?: Diagram) {
     this.diagram = diagram ?? createDiagram()
     this.ensureNewFields()
+
+    const snap   = () => this.pushUndoSnapshot()
+    const emit   = (type: string, payload: unknown) => this.emit(type as StoreEventType, payload)
+    const isGroup = () => this._undoGroupActive
+    const mgr = <T extends { id: string }>(items: T[], kind: string) =>
+      new CollectionManager<T>(items, emit, snap, kind, isGroup)
+
+    this._classes     = mgr(this.diagram.classes,           'class')
+    this._packages    = mgr(this.diagram.packages,          'package')
+    this._storages    = mgr(this.diagram.storages,          'storage')
+    this._actors      = mgr(this.diagram.actors,            'actor')
+    this._queues      = mgr(this.diagram.queues,            'queue')
+    this._useCases    = mgr(this.diagram.useCases,          'use-case')
+    this._ucSystems   = mgr(this.diagram.ucSystems,         'uc-system')
+    this._states      = mgr(this.diagram.states,            'state')
+    this._startStates = mgr(this.diagram.startStates,       'start-state')
+    this._endStates   = mgr(this.diagram.endStates,         'end-state')
+    this._seqDiagrams = mgr(this.diagram.sequenceDiagrams,  'seq-diagram')
+    this._fragments   = mgr(this.diagram.combinedFragments, 'seq-fragment')
+    this._comments    = mgr(this.diagram.comments,          'comment')
+    this._connections = mgr(this.diagram.connections,       'connection')
+
+    this._allManagers = [
+      { mgr: this._classes,     field: 'classes' },
+      { mgr: this._packages,    field: 'packages' },
+      { mgr: this._storages,    field: 'storages' },
+      { mgr: this._actors,      field: 'actors' },
+      { mgr: this._queues,      field: 'queues' },
+      { mgr: this._useCases,    field: 'useCases' },
+      { mgr: this._ucSystems,   field: 'ucSystems' },
+      { mgr: this._states,      field: 'states' },
+      { mgr: this._startStates, field: 'startStates' },
+      { mgr: this._endStates,   field: 'endStates' },
+      { mgr: this._seqDiagrams, field: 'sequenceDiagrams' },
+      { mgr: this._fragments,   field: 'combinedFragments' },
+      { mgr: this._comments,    field: 'comments' },
+      { mgr: this._connections, field: 'connections' },
+    ]
+  }
+
+  private rebindManagers() {
+    for (const { mgr, field } of this._allManagers) {
+      mgr.replaceItems(this.diagram[field] as any[])
+    }
   }
 
   // ── Undo / Redo ──────────────────────────────────────────────────────────
@@ -107,6 +172,7 @@ export class DiagramStore {
     this.redoStack.push(JSON.parse(JSON.stringify(this.diagram)) as Diagram)
     this.diagram = snapshot
     this.ensureNewFields()
+    this.rebindManagers()
     this.emit('diagram:load', this.diagram)
     this.emit('history:change')
   }
@@ -117,6 +183,7 @@ export class DiagramStore {
     this.undoStack.push(JSON.parse(JSON.stringify(this.diagram)) as Diagram)
     this.diagram = snapshot
     this.ensureNewFields()
+    this.rebindManagers()
     this.emit('diagram:load', this.diagram)
     this.emit('history:change')
   }
@@ -187,6 +254,7 @@ export class DiagramStore {
     this.diagram.connections = this.diagram.connections.filter(
       cn => cn.source.elementId !== id && cn.target.elementId !== id,
     )
+    this._connections.replaceItems(this.diagram.connections)
   }
 
   /** Clear pinnedTo on any comment pinned to the given element id, emitting comment:update for each. */
@@ -341,80 +409,55 @@ export class DiagramStore {
 
   // ── Classes ──────────────────────────────────────────────────────────────
 
-  addClass(cls: UmlClass)                      { this.pushUndoSnapshot(); this.diagram.classes.push(cls); this.emit('class:add', cls) }
-  updateClass(id: string, patch: Partial<UmlClass>) {
-    const el = this.diagram.classes.find(c => c.id === id); if (!el) return
-    this.pushUndoSnapshot(); Object.assign(el, patch); this.emit('class:update', el)
-  }
+  addClass(cls: UmlClass)                                { this._classes.add(cls) }
+  updateClass(id: string, patch: Partial<UmlClass>)      { this._classes.update(id, patch) }
   removeClass(id: string) {
-    this.pushUndoSnapshot()
-    this.diagram.classes = this.diagram.classes.filter(c => c.id !== id)
-    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id); this.emit('class:remove', id)
+    this._classes.remove(id)
+    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id)
   }
 
   // ── Packages ─────────────────────────────────────────────────────────────
 
-  addPackage(pkg: UmlPackage)                  { this.pushUndoSnapshot(); this.diagram.packages.push(pkg); this.emit('package:add', pkg) }
-  updatePackage(id: string, patch: Partial<UmlPackage>) {
-    const el = this.diagram.packages.find(p => p.id === id); if (!el) return
-    this.pushUndoSnapshot(); Object.assign(el, patch); this.emit('package:update', el)
-  }
+  addPackage(pkg: UmlPackage)                            { this._packages.add(pkg) }
+  updatePackage(id: string, patch: Partial<UmlPackage>)  { this._packages.update(id, patch) }
   removePackage(id: string) {
-    this.pushUndoSnapshot()
-    this.diagram.packages = this.diagram.packages.filter(p => p.id !== id)
-    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id); this.emit('package:remove', id)
+    this._packages.remove(id)
+    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id)
   }
 
   // ── Storages ─────────────────────────────────────────────────────────────
 
-  addStorage(s: Storage)                       { this.pushUndoSnapshot(); this.diagram.storages.push(s); this.emit('storage:add', s) }
-  updateStorage(id: string, patch: Partial<Storage>) {
-    const el = this.diagram.storages.find(s => s.id === id); if (!el) return
-    this.pushUndoSnapshot(); Object.assign(el, patch); this.emit('storage:update', el)
-  }
+  addStorage(s: Storage)                                 { this._storages.add(s) }
+  updateStorage(id: string, patch: Partial<Storage>)     { this._storages.update(id, patch) }
   removeStorage(id: string) {
-    this.pushUndoSnapshot()
-    this.diagram.storages = this.diagram.storages.filter(s => s.id !== id)
-    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id); this.emit('storage:remove', id)
+    this._storages.remove(id)
+    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id)
   }
 
   // ── Actors ───────────────────────────────────────────────────────────────
 
-  addActor(a: Actor)                           { this.pushUndoSnapshot(); this.diagram.actors.push(a); this.emit('actor:add', a) }
-  updateActor(id: string, patch: Partial<Actor>) {
-    const el = this.diagram.actors.find(a => a.id === id); if (!el) return
-    this.pushUndoSnapshot(); Object.assign(el, patch); this.emit('actor:update', el)
-  }
+  addActor(a: Actor)                                     { this._actors.add(a) }
+  updateActor(id: string, patch: Partial<Actor>)         { this._actors.update(id, patch) }
   removeActor(id: string) {
-    this.pushUndoSnapshot()
-    this.diagram.actors = this.diagram.actors.filter(a => a.id !== id)
-    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id); this.emit('actor:remove', id)
+    this._actors.remove(id)
+    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id)
   }
 
   // ── Queues ───────────────────────────────────────────────────────────────
 
-  addQueue(q: Queue)                           { this.pushUndoSnapshot(); this.diagram.queues.push(q); this.emit('queue:add', q) }
-  updateQueue(id: string, patch: Partial<Queue>) {
-    const el = this.diagram.queues.find(q => q.id === id); if (!el) return
-    this.pushUndoSnapshot(); Object.assign(el, patch); this.emit('queue:update', el)
-  }
+  addQueue(q: Queue)                                     { this._queues.add(q) }
+  updateQueue(id: string, patch: Partial<Queue>)         { this._queues.update(id, patch) }
   removeQueue(id: string) {
-    this.pushUndoSnapshot()
-    this.diagram.queues = this.diagram.queues.filter(q => q.id !== id)
-    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id); this.emit('queue:remove', id)
+    this._queues.remove(id)
+    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id)
   }
 
   // ── Connections ──────────────────────────────────────────────────────────
 
-  addConnection(conn: Connection)              { this.pushUndoSnapshot(); this.diagram.connections.push(conn); this.emit('connection:add', conn) }
-  updateConnection(id: string, patch: Partial<Connection>) {
-    const el = this.diagram.connections.find(c => c.id === id); if (!el) return
-    this.pushUndoSnapshot(); Object.assign(el, patch); this.emit('connection:update', el)
-  }
+  addConnection(conn: Connection)                        { this._connections.add(conn) }
+  updateConnection(id: string, patch: Partial<Connection>) { this._connections.update(id, patch) }
   removeConnection(id: string) {
-    this.pushUndoSnapshot()
-    this.diagram.connections = this.diagram.connections.filter(c => c.id !== id)
-    this.emit('connection:remove', id)
+    this._connections.remove(id)
   }
 
   // ── Viewport ─────────────────────────────────────────────────────────────
@@ -429,75 +472,54 @@ export class DiagramStore {
 
   // ── Use Cases ────────────────────────────────────────────────────────────
 
-  addUseCase(uc: UseCase)                      { this.pushUndoSnapshot(); this.diagram.useCases.push(uc); this.emit('use-case:add', uc) }
-  updateUseCase(id: string, patch: Partial<UseCase>) {
-    const el = this.diagram.useCases.find(u => u.id === id); if (!el) return
-    this.pushUndoSnapshot(); Object.assign(el, patch); this.emit('use-case:update', el)
-  }
+  addUseCase(uc: UseCase)                                { this._useCases.add(uc) }
+  updateUseCase(id: string, patch: Partial<UseCase>)     { this._useCases.update(id, patch) }
   removeUseCase(id: string) {
-    this.pushUndoSnapshot()
-    this.diagram.useCases = this.diagram.useCases.filter(u => u.id !== id)
-    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id); this.emit('use-case:remove', id)
+    this._useCases.remove(id)
+    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id)
   }
 
   // ── UC Systems ───────────────────────────────────────────────────────────
 
-  addUCSystem(sys: UCSystem)                   { this.pushUndoSnapshot(); this.diagram.ucSystems.push(sys); this.emit('uc-system:add', sys) }
-  updateUCSystem(id: string, patch: Partial<UCSystem>) {
-    const el = this.diagram.ucSystems.find(u => u.id === id); if (!el) return
-    this.pushUndoSnapshot(); Object.assign(el, patch); this.emit('uc-system:update', el)
-  }
+  addUCSystem(sys: UCSystem)                             { this._ucSystems.add(sys) }
+  updateUCSystem(id: string, patch: Partial<UCSystem>)   { this._ucSystems.update(id, patch) }
   removeUCSystem(id: string) {
-    this.pushUndoSnapshot()
-    this.diagram.ucSystems = this.diagram.ucSystems.filter(u => u.id !== id)
-    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id); this.emit('uc-system:remove', id)
+    this._ucSystems.remove(id)
+    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id)
   }
 
   // ── States ───────────────────────────────────────────────────────────────
 
-  addState(s: State)                           { this.pushUndoSnapshot(); this.diagram.states.push(s); this.emit('state:add', s) }
-  updateState(id: string, patch: Partial<State>) {
-    const el = this.diagram.states.find(s => s.id === id); if (!el) return
-    this.pushUndoSnapshot(); Object.assign(el, patch); this.emit('state:update', el)
-  }
+  addState(s: State)                                     { this._states.add(s) }
+  updateState(id: string, patch: Partial<State>)         { this._states.update(id, patch) }
   removeState(id: string) {
-    this.pushUndoSnapshot()
-    this.diagram.states = this.diagram.states.filter(s => s.id !== id)
-    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id); this.emit('state:remove', id)
+    this._states.remove(id)
+    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id)
   }
 
   // ── Start States ─────────────────────────────────────────────────────────
 
-  addStartState(s: StartState)                 { this.pushUndoSnapshot(); this.diagram.startStates.push(s); this.emit('start-state:add', s) }
-  updateStartState(id: string, patch: Partial<StartState>) {
-    const el = this.diagram.startStates.find(s => s.id === id); if (!el) return
-    this.pushUndoSnapshot(); Object.assign(el, patch); this.emit('start-state:update', el)
-  }
+  addStartState(s: StartState)                           { this._startStates.add(s) }
+  updateStartState(id: string, patch: Partial<StartState>) { this._startStates.update(id, patch) }
   removeStartState(id: string) {
-    this.pushUndoSnapshot()
-    this.diagram.startStates = this.diagram.startStates.filter(s => s.id !== id)
-    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id); this.emit('start-state:remove', id)
+    this._startStates.remove(id)
+    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id)
   }
 
   // ── End States ───────────────────────────────────────────────────────────
 
-  addEndState(s: EndState)                     { this.pushUndoSnapshot(); this.diagram.endStates.push(s); this.emit('end-state:add', s) }
-  updateEndState(id: string, patch: Partial<EndState>) {
-    const el = this.diagram.endStates.find(s => s.id === id); if (!el) return
-    this.pushUndoSnapshot(); Object.assign(el, patch); this.emit('end-state:update', el)
-  }
+  addEndState(s: EndState)                               { this._endStates.add(s) }
+  updateEndState(id: string, patch: Partial<EndState>)   { this._endStates.update(id, patch) }
   removeEndState(id: string) {
-    this.pushUndoSnapshot()
-    this.diagram.endStates = this.diagram.endStates.filter(s => s.id !== id)
-    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id); this.emit('end-state:remove', id)
+    this._endStates.remove(id)
+    this.cleanupConnectionsForElement(id); this.cleanupPinsForElement(id)
   }
 
   // ── Sequence Diagrams ────────────────────────────────────────────────────
 
-  addSequenceDiagram(sd: SequenceDiagram)      { this.pushUndoSnapshot(); this.diagram.sequenceDiagrams.push(sd); this.emit('seq-diagram:add', sd) }
+  addSequenceDiagram(sd: SequenceDiagram)                { this._seqDiagrams.add(sd) }
   updateSequenceDiagram(id: string, patch: Partial<SequenceDiagram>) {
-    const el = this.diagram.sequenceDiagrams.find(s => s.id === id); if (!el) return
-    if (!this._undoGroupActive) this.pushUndoSnapshot(); Object.assign(el, patch); this.emit('seq-diagram:update', el)
+    this._seqDiagrams.update(id, patch, /* respectUndoGroup */ true)
   }
   updateLifeline(sdId: string, llId: string, patch: Partial<SequenceLifeline>) {
     const sd = this.diagram.sequenceDiagrams.find(s => s.id === sdId)
@@ -507,35 +529,27 @@ export class DiagramStore {
     this.emit('seq-diagram:update', sd)
   }
   removeSequenceDiagram(id: string) {
-    this.pushUndoSnapshot()
-    this.diagram.sequenceDiagrams = this.diagram.sequenceDiagrams.filter(s => s.id !== id)
-    this.cleanupPinsForElement(id); this.emit('seq-diagram:remove', id)
+    this._seqDiagrams.remove(id)
+    this.cleanupPinsForElement(id)
   }
 
   // ── Combined Fragments ───────────────────────────────────────────────────
 
-  addCombinedFragment(frag: CombinedFragment)  { this.pushUndoSnapshot(); this.diagram.combinedFragments.push(frag); this.emit('seq-fragment:add', frag) }
-  updateCombinedFragment(id: string, patch: Partial<CombinedFragment>) {
-    const el = this.diagram.combinedFragments.find(f => f.id === id); if (!el) return
-    this.pushUndoSnapshot(); Object.assign(el, patch); this.emit('seq-fragment:update', el)
-  }
+  addCombinedFragment(frag: CombinedFragment)            { this._fragments.add(frag) }
+  updateCombinedFragment(id: string, patch: Partial<CombinedFragment>) { this._fragments.update(id, patch) }
   removeCombinedFragment(id: string) {
-    this.pushUndoSnapshot()
-    this.diagram.combinedFragments = this.diagram.combinedFragments.filter(f => f.id !== id)
-    this.cleanupPinsForElement(id); this.emit('seq-fragment:remove', id)
+    this._fragments.remove(id)
+    this.cleanupPinsForElement(id)
   }
 
   // ── Comments ─────────────────────────────────────────────────────────────
 
-  addComment(c: Comment)                       { this.pushUndoSnapshot(); this.diagram.comments.push(c); this.emit('comment:add', c) }
+  addComment(c: Comment)                                 { this._comments.add(c) }
   updateComment(id: string, patch: Partial<Comment>) {
-    const el = this.diagram.comments.find(c => c.id === id); if (!el) return
-    if (!this._undoGroupActive) this.pushUndoSnapshot(); Object.assign(el, patch); this.emit('comment:update', el)
+    this._comments.update(id, patch, /* respectUndoGroup */ true)
   }
   removeComment(id: string) {
-    this.pushUndoSnapshot()
-    this.diagram.comments = this.diagram.comments.filter(c => c.id !== id)
-    this.emit('comment:remove', id)
+    this._comments.remove(id)
   }
 
   // ── Load ─────────────────────────────────────────────────────────────────
@@ -543,6 +557,7 @@ export class DiagramStore {
   load(diagram: Diagram) {
     this.diagram = diagram
     this.ensureNewFields()
+    this.rebindManagers()
     this.emit('diagram:load', diagram)
   }
 }
