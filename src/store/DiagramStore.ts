@@ -218,6 +218,7 @@ export class DiagramStore {
       this.diagram.actors, this.diagram.queues, this.diagram.useCases,
       this.diagram.ucSystems, this.diagram.states, this.diagram.startStates,
       this.diagram.endStates, this.diagram.comments,
+      this.diagram.sequenceDiagrams, this.diagram.combinedFragments,
     ]
     for (const col of collections) {
       const el = col?.find(e => e.id === id)
@@ -241,6 +242,17 @@ export class DiagramStore {
         if (c.pinnedTo === id && c.pinnedOffset) {
           c.position = { x: patch.position.x + c.pinnedOffset.x, y: patch.position.y + c.pinnedOffset.y }
           this.emit('comment:update', c)
+        }
+      }
+
+      // If we are moving a comment, update its own pinnedOffset
+      if (kind === 'comment') {
+        const c = el as unknown as Comment
+        if (c.pinnedTo) {
+          const target = this.findAnyElement(c.pinnedTo)
+          if (target) {
+            c.pinnedOffset = { x: patch.position.x - target.position.x, y: patch.position.y - target.position.y }
+          }
         }
       }
     }
@@ -550,8 +562,8 @@ export class DiagramStore {
   // ── Comments ─────────────────────────────────────────────────────────────
 
   addComment(c: Comment)                                 { this._comments.add(c) }
-  updateComment(id: string, patch: Partial<Comment>) {
-    this._comments.update(id, patch, /* respectUndoGroup */ true)
+  updateComment(id: string, patch: Partial<Comment>, respectUndoGroup = false): void {
+    this._comments.update(id, patch, respectUndoGroup)
   }
   removeComment(id: string) {
     this._comments.remove(id)

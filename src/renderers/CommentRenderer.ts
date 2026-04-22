@@ -1,6 +1,7 @@
 import type { Comment } from '../entities/Comment.ts'
 import type { DiagramStore } from '../store/DiagramStore.ts'
 import { svgEl } from './svgUtils.ts'
+import { elementShape, borderPointRect, borderPointForShape } from '../geometry/shapeGeometry.ts'
 
 const DOG_EAR = 14
 const FONT_SIZE = 12
@@ -50,10 +51,6 @@ export function measureCommentHeight(text: string, boxWidth: number): number {
   return Math.max(MIN_HEIGHT, Math.ceil(textHeight))
 }
 
-// Element types grouped by border shape for pin-line calculations
-const PILL_ELEMENT_TYPES  = new Set(['state', 'storage', 'queue'])
-const ELLIPSE_ELEMENT_TYPES = new Set(['use-case'])
-const CIRCLE_ELEMENT_TYPES  = new Set(['start-state', 'end-state'])
 
 export class CommentRenderer {
   readonly el: SVGGElement
@@ -64,6 +61,7 @@ export class CommentRenderer {
   private fo: SVGForeignObjectElement
   private textDiv: HTMLDivElement
   private pinLine: SVGLineElement
+  private _isDragging = false
   private readonly _unsub: () => void
 
   constructor(
@@ -175,15 +173,19 @@ export class CommentRenderer {
     this.fo.setAttribute('height', String(h))
     this.textDiv.textContent = comment.text
 
+    // During drag, the live-preview logic in main.ts controls the pinLine.
+    // We suppress the "official" store-driven pin line to avoid visual fighting.
+    if (this._isDragging) {
+      this.pinLine.style.display = 'none'
+      return
+    }
+
     // pin line — drawn in group-local coords (group is translated to comment position)
     if (comment.pinnedTo) {
       const target = this.store.findAnyElement(comment.pinnedTo)
       if (target) {
         const et = target.elementType ?? ''
-        const shape = ELLIPSE_ELEMENT_TYPES.has(et) ? 'ellipse'
-                    : CIRCLE_ELEMENT_TYPES.has(et)  ? 'circle'
-                    : PILL_ELEMENT_TYPES.has(et)    ? 'pill'
-                    : 'rect'
+        const shape = elementShape(et as any)
         const renderedSize = this.getRenderedSizeById?.(target.id) ?? target.size
         this.setPinLine(x, y, w, h, { x: target.position.x, y: target.position.y, w: renderedSize.w, h: renderedSize.h, shape })
       } else {
@@ -194,61 +196,12 @@ export class CommentRenderer {
     }
   }
 
-  /** Nearest point on a rect border (toward external point px,py). */
-  private nearestBorderPoint(rx: number, ry: number, rw: number, rh: number, px: number, py: number): { x: number; y: number } {
-    const cx = rx + rw / 2, cy = ry + rh / 2
-    const dx = px - cx, dy = py - cy
-    if (dx === 0 && dy === 0) return { x: cx, y: ry }
-    const scaleX = rw / 2 / Math.abs(dx || 1e-9)
-    const scaleY = rh / 2 / Math.abs(dy || 1e-9)
-    return { x: cx + dx * Math.min(scaleX, scaleY), y: cy + dy * Math.min(scaleX, scaleY) }
-  }
-
-  /** Nearest point on an ellipse border (toward external point px,py). */
-  private nearestBorderPointEllipse(rx: number, ry: number, rw: number, rh: number, px: number, py: number): { x: number; y: number } {
-    const cx = rx + rw / 2, cy = ry + rh / 2
-    const dx = px - cx, dy = py - cy
-    if (dx === 0 && dy === 0) return { x: cx, y: ry }
-    const len = Math.hypot(dx / (rw / 2), dy / (rh / 2))
-    return { x: cx + dx / len, y: cy + dy / len }
-  }
-
-  /** Nearest point on a pill (stadium) border: two semicircles + straight top/bottom band. */
-  private nearestBorderPointPill(rx: number, ry: number, rw: number, rh: number, px: number, py: number): { x: number; y: number } {
-    const r = rh / 2
-    const cy = ry + r
-    const capLX = rx + r, capRX = rx + rw - r
-    // The nearest cap center is determined by clamping px into the straight band
-    const capCX = Math.max(capLX, Math.min(px, capRX))
-    const dx = px - capCX, dy = py - cy
-    const len = Math.hypot(dx, dy)
-    if (len === 0) return { x: capCX, y: ry }
-    return { x: capCX + (dx / len) * r, y: cy + (dy / len) * r }
-  }
-
-  /** Nearest point on a circle border. */
-  private nearestBorderPointCircle(rx: number, ry: number, rw: number, rh: number, px: number, py: number): { x: number; y: number } {
-    const cx = rx + rw / 2, cy = ry + rh / 2
-    const r = Math.min(rw, rh) / 2
-    const dx = px - cx, dy = py - cy
-    const len = Math.hypot(dx, dy)
-    if (len === 0) return { x: cx, y: cy - r }
-    return { x: cx + (dx / len) * r, y: cy + (dy / len) * r }
-  }
-
-  private borderPoint(ex: number, ey: number, ew: number, eh: number, shape: string, px: number, py: number): { x: number; y: number } {
-    if (shape === 'ellipse') return this.nearestBorderPointEllipse(ex, ey, ew, eh, px, py)
-    if (shape === 'pill')    return this.nearestBorderPointPill(ex, ey, ew, eh, px, py)
-    if (shape === 'circle')  return this.nearestBorderPointCircle(ex, ey, ew, eh, px, py)
-    return this.nearestBorderPoint(ex, ey, ew, eh, px, py)
-  }
-
   private setPinLine(cx: number, cy: number, cw: number, ch: number, target: { x: number; y: number; w: number; h: number; shape?: string }) {
     const commentCX = cx + cw / 2, commentCY = cy + ch / 2
     const targetCX  = target.x + target.w / 2, targetCY = target.y + target.h / 2
     // comment border is always a rect
-    const p1 = this.nearestBorderPoint(cx, cy, cw, ch, targetCX, targetCY)
-    const p2 = this.borderPoint(target.x, target.y, target.w, target.h, target.shape ?? 'rect', commentCX, commentCY)
+    const p1 = borderPointRect(cx, cy, cw, ch, targetCX, targetCY)
+    const p2 = borderPointForShape(target.shape ?? 'rect', target.x, target.y, target.w, target.h, commentCX, commentCY)
     this.pinLine.setAttribute('x1', String(p1.x - cx))
     this.pinLine.setAttribute('y1', String(p1.y - cy))
     this.pinLine.setAttribute('x2', String(p2.x - cx))
@@ -265,6 +218,12 @@ export class CommentRenderer {
     const { w, h } = this.comment.size
     const { x, y } = this.comment.position
     this.setPinLine(x, y, w, h, targetPos)
+  }
+
+  setDragging(isDragging: boolean) {
+    this._isDragging = isDragging
+    // Force a re-render to either show or hide the official pin line
+    this.update(this.comment)
   }
 
   getRenderedSize() {

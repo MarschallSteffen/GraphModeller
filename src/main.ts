@@ -673,75 +673,105 @@ function wireCommentInteraction(r: CommentRenderer, comment: Comment) {
     })
   })
 
-  // Pin-on-drop: live preview during drag + commit on mouseup
-  // PIN_RADIUS is in screen pixels — converted to canvas units per call so it scales with zoom
-  const PIN_RADIUS_PX = 50
 
-  // Container kinds render below leaf elements; prefer leaf elements when pinning
-  const PIN_CONTAINER_KINDS = new Set<ElementKind>(['package', 'uc-system', 'seq-diagram', 'seq-fragment'])
-
-  function findClosestPinTarget(c: Comment): { id: string; kind: ElementKind; el: { position: { x: number; y: number }; size: { w: number; h: number } } } | null {
-    const PIN_RADIUS = PIN_RADIUS_PX / store.state.viewport.zoom
-    let foundId: string | null = null
-    let foundKind: ElementKind | null = null
-    let foundEl: { position: { x: number; y: number }; size: { w: number; h: number } } | null = null
-    let bestDist = Infinity
-    let bestIsContainer = true  // a non-container always beats a container at any distance
-    for (const desc of ELEMENTS) {
-      if (desc.kind === 'comment') continue
-      const isContainer = PIN_CONTAINER_KINDS.has(desc.kind as ElementKind)
-      const items = (store.state as any)[desc.collection] as Array<{ id: string; position: { x: number; y: number }; size: { w: number; h: number } }> ?? []
-      for (const el of items) {
-        const renderedSize = getRenderedSizeById(el.id) ?? el.size
-        const shape = elementShape(desc.kind as ElementKind)
-        const dist = shapedBorderDist(c.position.x, c.position.y, c.size.w, c.size.h, el.position.x, el.position.y, renderedSize.w, renderedSize.h, shape)
-        if (dist >= PIN_RADIUS) continue
-        // Prefer non-containers over containers; within same tier prefer closest
-        const beats = bestIsContainer && !isContainer || dist < bestDist && isContainer === bestIsContainer
-        if (beats) {
-          bestDist = dist
-          bestIsContainer = isContainer
-          foundId = el.id
-          foundKind = desc.kind as ElementKind
-          // Use rendered size so pin line and offset use the actual visual bounds
-          foundEl = { position: el.position, size: renderedSize }
-        }
-      }
-    }
-    return foundId && foundKind && foundEl ? { id: foundId, kind: foundKind, el: foundEl } : null
-  }
 
   r.el.addEventListener('mousedown', () => {
-    const onMove = () => {
-      const c = store.state.comments.find(c => c.id === comment.id)
-      if (!c) return
-      const hit = findClosestPinTarget(c)
-      r.setDragPinPreview(hit ? { x: hit.el.position.x, y: hit.el.position.y, w: hit.el.size.w, h: hit.el.size.h, shape: elementShape(hit.kind) } : null)
-    }
+    r.setDragging(true)
     const onUp = () => {
-      window.removeEventListener('mousemove', onMove)
+      r.setDragging(false)
       window.removeEventListener('mouseup', onUp)
-      const c = store.state.comments.find(c => c.id === comment.id)
-      if (!c) return
-      const hit = findClosestPinTarget(c)
-      if (hit) {
-        // Extend drag's undo group so pin commit shares the same undo step
-        store.extendUndoGroup()
-        store.updateComment(comment.id, {
-          pinnedTo: hit.id,
-          pinnedOffset: { x: c.position.x - hit.el.position.x, y: c.position.y - hit.el.position.y },
-        })
-        store.endUndoGroup()
-      } else if (c.pinnedTo) {
-        store.extendUndoGroup()
-        store.updateComment(comment.id, { pinnedTo: null, pinnedOffset: null })
-        store.endUndoGroup()
-      }
-      // Renderer will re-render via store event; no need to clear preview manually
     }
-    window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
   })
+
+  r.el.addEventListener('mouseenter', () => {
+    if (drag.isDragging) return
+    const c = store.state.comments.find(item => item.id === comment.id)
+    if (!c) return
+    const hit = findClosestPinTarget(c)
+    if (hit) {
+      r.setDragPinPreview({ x: hit.el.position.x, y: hit.el.position.y, w: hit.el.size.w, h: hit.el.size.h, shape: elementShape(hit.el.elementType ?? hit.kind) })
+    }
+  })
+  r.el.addEventListener('mouseleave', () => {
+    if (drag.isDragging) return
+    // Only clear if it's NOT pinned; if it's pinned, update() will handle showing the official line
+    const c = store.state.comments.find(item => item.id === comment.id)
+    if (!c?.pinnedTo) {
+      r.setDragPinPreview(null)
+    } else {
+      // Re-trigger update to show official line
+      r.update(c)
+    }
+  })
+}
+
+// ── Pinning Re-evaluation ───────────────────────────────────────────────────
+
+const PIN_RADIUS_PX = 50
+const PIN_CONTAINER_KINDS = new Set<ElementKind>(['package', 'uc-system', 'seq-diagram', 'seq-fragment'])
+
+function findClosestPinTarget(c: Comment): { id: string; kind: ElementKind; el: { position: { x: number; y: number }; size: { w: number; h: number }; elementType?: string } } | null {
+  const PIN_RADIUS = PIN_RADIUS_PX / store.state.viewport.zoom
+  let foundId: string | null = null
+  let foundKind: ElementKind | null = null
+  let foundEl: { position: { x: number; y: number }; size: { w: number; h: number }; elementType?: string } | null = null
+  let bestDist = Infinity
+  let bestIsContainer = true 
+  for (const desc of ELEMENTS) {
+    if (desc.kind === 'comment') continue
+    const isContainer = PIN_CONTAINER_KINDS.has(desc.kind as ElementKind)
+    const items = (store.state as any)[desc.collection] as Array<{ id: string; position: { x: number; y: number }; size: { w: number; h: number } }> ?? []
+    for (const el of items) {
+      const renderedSize = getRenderedSizeById(el.id) ?? el.size
+      const shape = elementShape((el as any).elementType ?? desc.kind)
+      const dist = shapedBorderDist(c.position.x, c.position.y, c.size.w, c.size.h, el.position.x, el.position.y, renderedSize.w, renderedSize.h, shape)
+      if (dist >= PIN_RADIUS) continue
+      const beats = bestIsContainer && !isContainer || dist < bestDist && isContainer === bestIsContainer
+      if (beats) {
+        bestDist = dist
+        bestIsContainer = isContainer
+        foundId = el.id
+        foundKind = desc.kind as ElementKind
+        foundEl = { position: el.position, size: renderedSize, elementType: (el as any).elementType }
+      }
+    }
+  }
+  return foundId && foundKind && foundEl ? { id: foundId, kind: foundKind, el: foundEl } : null
+}
+
+function reevaluateAllCommentPins() {
+  store.extendUndoGroup()
+  for (const c of store.state.comments) {
+    const hit = findClosestPinTarget(c)
+    if (hit) {
+      store.updateComment(c.id, {
+        pinnedTo: hit.id,
+        pinnedOffset: { x: c.position.x - hit.el.position.x, y: c.position.y - hit.el.position.y },
+      }, true)
+    } else if (c.pinnedTo) {
+      store.updateComment(c.id, { pinnedTo: null, pinnedOffset: null }, true)
+    }
+  }
+  store.endUndoGroup()
+}
+
+/** Update dashed preview lines for all comments during a drag */
+function updateAllCommentPinPreviews() {
+  for (const c of store.state.comments) {
+    const r = commentRenderers.get(c.id) as CommentRenderer
+    if (!r) continue
+    const hit = findClosestPinTarget(c)
+    r.setDragPinPreview(hit ? { x: hit.el.position.x, y: hit.el.position.y, w: hit.el.size.w, h: hit.el.size.h, shape: elementShape(hit.el.elementType ?? hit.kind) } : null)
+  }
+}
+
+/** Hide all dashed preview lines */
+function clearAllCommentPinPreviews() {
+  for (const c of store.state.comments) {
+    const r = commentRenderers.get(c.id) as CommentRenderer
+    if (r) r.setDragPinPreview(null)
+  }
 }
 
 // Active connection popover dismiss — call to close any open connection popover
@@ -1291,7 +1321,7 @@ window.addEventListener('mousemove', e => {
     dragGhost.style.top  = e.clientY + 12 + 'px'
     return
   }
-  if (drag.isDragging)      drag.onMouseMove(e)
+  if (drag.isDragging)      { drag.onMouseMove(e); updateAllCommentPinPreviews() }
   if (resize.isResizing)    resize.onMouseMove(e)
   if (connect.isConnecting) connect.onMouseMove(e)
   if (rubberBand.isActive)  rubberBand.onMouseMove(getSvgPoint(e))
@@ -1338,7 +1368,12 @@ window.addEventListener('mouseup', e => {
     }
     return
   }
-  if (drag.isDragging)   { drag.onMouseUp(); return }
+  if (drag.isDragging)   { 
+    drag.onMouseUp()
+    reevaluateAllCommentPins()
+    clearAllCommentPinPreviews()
+    return 
+  }
   if (resize.isResizing) { resize.onMouseUp(); return }
   if (rubberBand.isActive) { rubberBand.onMouseUp(); return }
   if (connect.isConnecting) {
